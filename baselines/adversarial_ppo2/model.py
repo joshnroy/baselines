@@ -41,6 +41,10 @@ class Model(object):
                 train_model = policy(nbatch_train, nsteps, sess)
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
+        with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
+            # CREATE DISCRIMINTATOR MODEL
+            # TODO
+            self.predicted_labels = ...
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -54,6 +58,11 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
+        # Seed labels for the discriminator
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
+
+        discriminator_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=self.predicted_labels)
+
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -61,7 +70,7 @@ class Model(object):
         entropy = tf.reduce_mean(train_model.pd.entropy())
 
         # CALCULATE THE LOSS
-        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss
+        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss - discriminator_loss
 
         # Clip the value to reduce variability during Critic training
         # Get the predicted value
@@ -88,7 +97,7 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss
 
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
@@ -115,6 +124,18 @@ class Model(object):
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
         self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac]
 
+        # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
+        # 1. Get the model parameters
+        disc_params = tf.trainable_variables('discriminator_model')
+        # 2. Build our trainer
+        if comm is not None and comm.Get_size() > 1:
+            self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
+        else:
+            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+        # 3. Calculate gradients
+        disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
+        self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
+
 
         self.train_model = train_model
         self.act_model = act_model
@@ -130,7 +151,7 @@ class Model(object):
         if MPI is not None:
             sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
 
-    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
+    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -146,14 +167,15 @@ class Model(object):
             self.LR : lr,
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
-            self.OLDVPRED : values
+            self.OLDVPRED : values,
+            self.LABELS : labels
         }
         if states is not None:
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
         return self.sess.run(
-            self.stats_list + [self._train_op],
+            self.stats_list + [self._train_op] + [self._disc_train_op],
             td_map
         )[:-1]
 

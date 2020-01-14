@@ -18,6 +18,12 @@ def constfn(val):
         return val
     return f
 
+def calc_labels(labels_dict, infos):
+    seed = infos["level_seed"]
+    if seed not in labels_dictj:
+        labels_dict[len(labels_dict)] = seed
+    return labels_dict[seed]
+
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
@@ -113,7 +119,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
     # Instantiate the runner object
     runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
     if eval_env is not None:
-        eval_runner = Runner(env = eval_env, model = model, nsteps = nsteps, gamma = gamma, lam= lam)
+        eval_runner = Runner(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:
@@ -121,6 +127,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     if init_fn is not None:
         init_fn()
+
+    labels_dict = {}
 
     # Start total timer
     tfirststart = time.perf_counter()
@@ -140,6 +148,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
         # Get minibatch
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
+
+        # Calculate seed-based labels
+        labels = calc_labels(labels_dict, epinfos)
+
         if eval_env is not None:
             eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
 
@@ -162,7 +174,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
+                    slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
         else: # recurrent version
             assert nenvs % nminibatches == 0
