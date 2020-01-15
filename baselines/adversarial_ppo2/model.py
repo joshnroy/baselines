@@ -192,7 +192,7 @@ class Model(object):
         )[:-1]
 
         if self.training_i % 3 == 0:
-        self.sess.run([self._disc_train_op], td_map)
+            self.sess.run([self._disc_train_op], td_map)
 
         self.training_i += 1
 
