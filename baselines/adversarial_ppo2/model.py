@@ -106,7 +106,8 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss
+        disc_coef = 0.01
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss * disc_coef
 
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
