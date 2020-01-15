@@ -50,7 +50,7 @@ class Model(object):
             predicted_logits = tf.nn.relu(dense(256, 512, "dense1", discriminator_inputs))
             for i in range(2, 2+3):
                 predicted_logits = tf.nn.relu(dense(512, 512, "dense" + str(i), predicted_logits))
-            predicted_logits = dense(512, 500, "dense_out", predicted_logits)
+            predicted_logits = dense(512, 200, "dense_out", predicted_logits)
 
             predicted_labels = tf.nn.softmax(predicted_logits)
 
@@ -107,7 +107,7 @@ class Model(object):
 
         # Total loss
         disc_coef = 0.01
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss * disc_coef
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef + (6.5 - discriminator_loss) * disc_coef
 
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
@@ -161,6 +161,8 @@ class Model(object):
         if MPI is not None:
             sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
 
+        self.training_i = 0
+
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
@@ -184,8 +186,15 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        return self.sess.run(
-            self.stats_list + [self._train_op] + [self._disc_train_op],
+        out = self.sess.run(
+            self.stats_list + [self._train_op],
             td_map
-        )[:-2]
+        )[:-1]
+
+        if self.training_i % 3 == 0:
+        self.sess.run([self._disc_train_op], td_map)
+
+        self.training_i += 1
+
+        return out
 
