@@ -47,8 +47,10 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
-            predicted_logits = tf.nn.relu(dense(256, 1000, "dense1", discriminator_inputs))
-            predicted_logits = dense(1000, 500, "dense_out", predicted_logits)
+            predicted_logits = tf.nn.relu(dense(256, 512, "dense1", discriminator_inputs))
+            for i in range(2, 2+3):
+                predicted_logits = tf.nn.relu(dense(512, 512, "dense" + str(i), predicted_logits))
+            predicted_logits = dense(512, 500, "dense_out", predicted_logits)
 
             predicted_labels = tf.nn.softmax(predicted_logits)
 

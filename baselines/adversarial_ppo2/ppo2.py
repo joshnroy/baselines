@@ -179,7 +179,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
                     e_lossvals = model.train(lrnow, cliprangenow, *slices)
-                    print(e_lossvals)
                     mblossvals.append(e_lossvals)
         else: # recurrent version
             assert nenvs % nminibatches == 0
