@@ -181,7 +181,7 @@ class Model(object):
             td_map[self.train_model.M] = masks
 
         return self.sess.run(
-            self.stats_list + [self._train_op], + [self._disc_train_op],
+            self.stats_list + [self._train_op] + [self._disc_train_op],
             td_map
         )[:-2]
 
