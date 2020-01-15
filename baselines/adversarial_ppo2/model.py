@@ -4,6 +4,7 @@ import sys
 
 from baselines.common.tf_util import get_session, save_variables, load_variables
 from baselines.common.tf_util import initialize
+from baselines.common.layers import dense
 
 try:
     from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
@@ -44,26 +45,10 @@ class Model(object):
                 train_model = policy(microbatch_size, nsteps, sess)
         with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
-            # TODO
-            discriminator_inputs = act_model.intermediate_feature
+            discriminator_inputs = train_model.intermediate_feature
 
-            conv1_weights = tf.Variable(tf.truncated_normal((4, 4, 16, 16), stddev=0.03), name='conv1_W')
-            conv1_bias = tf.Variable(tf.truncated_normal([16]), name='conv1_b')
-            predicted_logits = tf.nn.relu(tf.nn.conv2d(discriminator_inputs, conv1_weights, 2, padding="SAME") + conv1_bias)
-
-            conv2_weights = tf.Variable(tf.truncated_normal((4, 4, 16, 32), stddev=0.03), name='conv2_W')
-            conv2_bias = tf.Variable(tf.truncated_normal([32]), name='conv2_b')
-            predicted_logits = tf.nn.relu(tf.nn.conv2d(discriminator_inputs, conv2_weights, 2, padding="SAME") + conv2_bias)
-
-            print(predicted_logits)
-            sys.exit()
-
-            conv_output_dim = # TODO: Fill in dimension
-            predicted_logits = tf.reshape(predicted_logits, [-1, conv_output_dim]) # TODO: Fill in dimension
-
-            dense1_weights = tf.Variable(tf.truncated_normal([conv_output_dim, 500], stddev=0.03), name='dense1_W')
-            dense1_bias = tf.Variable(tf.truncated_normal([500], stddev=0.01), name='dense1_B')
-            predicted_logits = tf.matmul(dense1_weights, predicted_logits) + dense1_bias
+            predicted_logits = tf.nn.relu(dense(256, 1000, "dense1", discriminator_inputs))
+            predicted_logits = dense(1000, 500, "dense_out", predicted_logits)
 
             predicted_labels = tf.nn.softmax(predicted_logits)
 
@@ -82,7 +67,7 @@ class Model(object):
         # Seed labels for the discriminator
         self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
 
-        discriminator_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits)
+        discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -142,8 +127,8 @@ class Model(object):
         self.grads = grads
         self.var = var
         self._train_op = self.trainer.apply_gradients(grads_and_var)
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss]
 
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
         # 1. Get the model parameters
@@ -196,7 +181,7 @@ class Model(object):
             td_map[self.train_model.M] = masks
 
         return self.sess.run(
-            self.stats_list + [self._train_op] + [self._disc_train_op],
+            self.stats_list + [self._train_op], + [self._disc_train_op],
             td_map
-        )[:-1]
+        )[:-2]
 

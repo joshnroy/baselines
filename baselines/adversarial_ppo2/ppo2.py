@@ -1,11 +1,12 @@
 import os
 import time
+import sys
 import numpy as np
 import os.path as osp
 from baselines import logger
 from collections import deque
 from baselines.common import explained_variance, set_global_seeds
-from baselines.common.policies import build_policy
+from baselines.adversarial_ppo2.policies import build_policy
 try:
     from mpi4py import MPI
 except ImportError:
@@ -18,11 +19,13 @@ def constfn(val):
         return val
     return f
 
-def calc_labels(labels_dict, infos):
-    seed = infos["level_seed"]
-    if seed not in labels_dictj:
-        labels_dict[len(labels_dict)] = seed
-    return labels_dict[seed]
+def calc_labels(labels_dict, seeds):
+    ret = []
+    for seed in seeds:
+        if seed not in labels_dict:
+            labels_dict[seed] = len(labels_dict)
+        ret.append(labels_dict[seed])
+    return np.asarray(ret)
 
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
@@ -147,13 +150,13 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         if update % log_interval == 0 and is_mpi_root: logger.info('Stepping environment...')
 
         # Get minibatch
-        obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
+        obs, returns, masks, actions, values, neglogpacs, seeds, states, epinfos = runner.run() #pylint: disable=E0632
 
         # Calculate seed-based labels
-        labels = calc_labels(labels_dict, epinfos)
+        labels = calc_labels(labels_dict, seeds)
 
         if eval_env is not None:
-            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
+            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
 
@@ -175,7 +178,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                    e_lossvals = model.train(lrnow, cliprangenow, *slices)
+                    mblossvals.append(e_lossvals)
         else: # recurrent version
             assert nenvs % nminibatches == 0
             envsperbatch = nenvs // nminibatches
