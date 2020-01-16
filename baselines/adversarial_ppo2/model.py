@@ -47,9 +47,9 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
-            predicted_logits = tf.nn.relu(dense(256, 512, "dense1", discriminator_inputs))
+            predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", discriminator_inputs))
             for i in range(2, 2+3):
-                predicted_logits = tf.nn.relu(dense(512, 512, "dense" + str(i), predicted_logits))
+                predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
             predicted_logits = dense(512, 200, "dense_out", predicted_logits)
 
             predicted_labels = tf.nn.softmax(predicted_logits)
@@ -186,16 +186,16 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        for _ in range(3):
-            out = self.sess.run(
-                self.stats_list + [self._train_op],
-                td_map
-            )[:-1]
+        # for _ in range(3):
+        out = self.sess.run(
+            self.stats_list + [self._train_op],
+            td_map
+        )[:-1]
 
         # if self.training_i % 10 == 0:
         self.sess.run([self._disc_train_op], td_map)
 
-        # self.training_i += 1
+        self.training_i += 1
 
         return out
 
