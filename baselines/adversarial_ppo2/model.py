@@ -107,7 +107,7 @@ class Model(object):
 
         # Total loss
         disc_coef = 0.01
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef + (6.5 - discriminator_loss) * disc_coef
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss * disc_coef
 
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
@@ -186,15 +186,16 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(
-            self.stats_list + [self._train_op],
-            td_map
-        )[:-1]
+        for _ in range(3):
+            out = self.sess.run(
+                self.stats_list + [self._train_op],
+                td_map
+            )[:-1]
 
-        if self.training_i % 3 == 0:
-            self.sess.run([self._disc_train_op], td_map)
+        # if self.training_i % 10 == 0:
+        self.sess.run([self._disc_train_op], td_map)
 
-        self.training_i += 1
+        # self.training_i += 1
 
         return out
 
