@@ -70,6 +70,7 @@ class Model(object):
         self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
+        discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
         discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32))
 
         neglogpac = train_model.pd.neglogp(A)
@@ -106,9 +107,33 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        disc_coef = 0.01
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef - discriminator_loss * disc_coef
+        # disc_coef = 1.
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy]
+
+        self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
+        self.update_policy_discriminator_params(comm, discriminator_loss_clipped, mpi_rank_weight, LR, max_grad_norm)
+        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+
+        self.train_model = train_model
+        self.act_model = act_model
+        self.step = act_model.step
+        self.value = act_model.value
+        self.initial_state = act_model.initial_state
+
+        self.save = functools.partial(save_variables, sess=sess)
+        self.load = functools.partial(load_variables, sess=sess)
+
+        initialize()
+        global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
+        if MPI is not None:
+            sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
+
+        self.training_i = 0
+
+    def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
         params = tf.trainable_variables('ppo2_model')
@@ -131,9 +156,24 @@ class Model(object):
         self.grads = grads
         self.var = var
         self._train_op = self.trainer.apply_gradients(grads_and_var)
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy]
 
+    def update_policy_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
+        # UPDATE POLICY PARAMETERS USING DISCRIMINTATOR_LOSS
+        params = tf.trainable_variables('ppo2_model')
+        if comm is not None and comm.Get_size() > 1:
+            self.pd_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
+        else:
+            self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+        pd_grads_and_var = self.trainer.compute_gradients(-discriminator_loss, params)
+        pd_grads, pd_var = zip(*pd_grads_and_var)
+
+        if max_grad_norm is not None:
+            # Clip the gradients (normalize)
+            pd_grads, _pd_grad_norm = tf.clip_by_global_norm(pd_grads, max_grad_norm * 0.1)
+        pd_grads_and_var = list(zip(pd_grads, pd_var))
+        self._pd_train_op = self.trainer.apply_gradients(pd_grads_and_var)
+
+    def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
         # 1. Get the model parameters
         disc_params = tf.trainable_variables('discriminator_model')
@@ -144,24 +184,13 @@ class Model(object):
             self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
+        disc_grads, disc_var = zip(*disc_grads_and_var)
+
+        # if max_grad_norm is not None:
+        #     # Clip the gradients (normalize)
+        #     disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm / 2.)
+        # disc_grads_and_var = list(zip(disc_grads, disc_var))
         self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
-
-
-        self.train_model = train_model
-        self.act_model = act_model
-        self.step = act_model.step
-        self.value = act_model.value
-        self.initial_state = act_model.initial_state
-
-        self.save = functools.partial(save_variables, sess=sess)
-        self.load = functools.partial(load_variables, sess=sess)
-
-        initialize()
-        global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
-        if MPI is not None:
-            sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
-
-        self.training_i = 0
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
@@ -186,7 +215,8 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        # for _ in range(3):
+        # self.sess.run([self._pd_train_op], td_map)
+
         out = self.sess.run(
             self.stats_list + [self._train_op],
             td_map
