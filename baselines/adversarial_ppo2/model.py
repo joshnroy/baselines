@@ -49,8 +49,9 @@ class Model(object):
             discriminator_inputs = train_model.intermediate_feature
 
             predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", discriminator_inputs))
-            for i in range(2, 2+5):
+            for i in range(2, 2+3):
                 predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
+                predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
             predicted_logits = dense(512, 200, "dense_out", predicted_logits)
 
             self.predicted_labels = tf.nn.softmax(predicted_logits)
@@ -171,7 +172,7 @@ class Model(object):
             self.pd_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
             # self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR * 0.001)
-            self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR)
+            self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         pd_grads_and_var = self.trainer.compute_gradients(pd_loss, params)
         pd_grads, pd_var = zip(*pd_grads_and_var)
 
@@ -190,14 +191,15 @@ class Model(object):
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
             self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
-        disc_grads, disc_var = zip(*disc_grads_and_var)
+        # disc_grads, disc_var = zip(*disc_grads_and_var)
 
-        if max_grad_norm is not None:
-            # Clip the gradients (normalize)
-            disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
-        disc_grads_and_var = list(zip(disc_grads, disc_var))
+        # if max_grad_norm is not None:
+        #     # Clip the gradients (normalize)
+        #     disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
+        # disc_grads_and_var = list(zip(disc_grads, disc_var))
         self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, states=None):
@@ -231,17 +233,37 @@ class Model(object):
         # if out[5] < 6.0:
         #     print("TRAINING PD")
         train_frequency = 10
-        if (self.training_i + 1) % train_frequency == 0:
+
+        # if (self.training_i + 1) % train_frequency == 0:
+        # for pd_i in range(10):
+        if out[7] > 5.0:
+            print("PD", out[7], out[6], pd_i)
             self.sess.run([self._pd_train_op], td_map)
+            out = self.sess.run(
+                self.stats_list,
+                td_map
+            )
+            # else:
+            #     break
 
         # predicted_labels = self.sess.run([self.predicted_labels], td_map)
         # print(predicted_labels)
         # print(np.sum(predicted_labels, axis=-1))
 
+        print("POLICY")
         self.sess.run([self._train_op], td_map)
 
-        if self.training_i % train_frequency == 0:
+        # if self.training_i % train_frequency == 0:
+        # for d_i in range(10):
+        if out[5] > 1.0:
+            print("DISC", out[5], out[6], d_i)
             self.sess.run([self._disc_train_op], td_map)
+            out = self.sess.run(
+                self.stats_list,
+                td_map
+            )
+            # else:
+            #     break
 
         self.training_i += 1
 

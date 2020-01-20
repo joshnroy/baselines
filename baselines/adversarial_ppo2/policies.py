@@ -8,6 +8,7 @@ from baselines.common.mpi_running_mean_std import RunningMeanStd
 from baselines.common.models import get_network_builder
 
 import gym
+import sys
 
 
 class PolicyWithValue(object):
@@ -41,7 +42,8 @@ class PolicyWithValue(object):
         vf_latent = vf_latent if vf_latent is not None else latent
 
         vf_latent = tf.layers.flatten(vf_latent)
-        self.intermediate_feature = latent = tf.layers.flatten(latent)
+        latent = tf.layers.flatten(latent)
+        self.intermediate_feature = tf.nn.tanh(latent)
 
         # Based on the action space, will select what probability distribution type
         self.pdtype = make_pdtype(env.action_space)
