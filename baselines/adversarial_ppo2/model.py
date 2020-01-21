@@ -28,8 +28,10 @@ class Model(object):
     - Save load the model
     """
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
-                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None):
+                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None, disc_coeff=1.):
         self.sess = sess = get_session()
+
+        self.disc_coeff = disc_coeff
 
         if MPI is not None and comm is None:
             comm = MPI.COMM_WORLD
@@ -48,7 +50,7 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
-            predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", discriminator_inputs))
+            predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense1", discriminator_inputs))
             for i in range(2, 2+3):
                 predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
                 predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
@@ -97,6 +99,7 @@ class Model(object):
 
         # Calculate ratio (pi current policy / pi old policy)
         ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
+        # ratio = 1.
 
         # Defining Loss = - J is equivalent to max J
         pg_losses = -ADV * ratio
@@ -105,25 +108,31 @@ class Model(object):
 
         # Final PG loss
         pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
+        # pg_loss = tf.reduce_mean(pg_losses)
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        # disc_coef = 1.
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
+        discriminator_loss *= self.disc_coeff
+
         self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 200.)
-        pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
+        # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
         # pd_loss = tf.reduce_mean(tf.abs(self.predicted_labels - (1. / 200.)))
-        # pd_loss = -discriminator_loss_clipped
+        pd_loss = -discriminator_loss_clipped
+        pd_loss *= self.disc_coeff
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
+        p_grads = self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
+        p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
 
-        self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
-
-        self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
+        pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
+        pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads', 'pd_grads']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads, pd_grads]
+
 
         self.train_model = train_model
         self.act_model = act_model
@@ -165,14 +174,16 @@ class Model(object):
         self.var = var
         self._train_op = self.trainer.apply_gradients(grads_and_var)
 
+        return grads
+
     def update_policy_discriminator_params(self, comm, pd_loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE POLICY PARAMETERS USING DISCRIMINTATOR_LOSS
         params = tf.trainable_variables('ppo2_model')
         if comm is not None and comm.Get_size() > 1:
             self.pd_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            # self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR * 0.001)
-            self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+            # self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         pd_grads_and_var = self.trainer.compute_gradients(pd_loss, params)
         pd_grads, pd_var = zip(*pd_grads_and_var)
 
@@ -182,6 +193,8 @@ class Model(object):
         pd_grads_and_var = list(zip(pd_grads, pd_var))
         self._pd_train_op = self.trainer.apply_gradients(pd_grads_and_var)
 
+        return pd_grads
+
     def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
         # 1. Get the model parameters
@@ -190,8 +203,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-            # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+            # self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
         # disc_grads, disc_var = zip(*disc_grads_and_var)
@@ -230,40 +243,17 @@ class Model(object):
             td_map
         )
 
-        # if out[5] < 6.0:
-        #     print("TRAINING PD")
         train_frequency = 10
 
-        # if (self.training_i + 1) % train_frequency == 0:
-        # for pd_i in range(10):
-        if out[7] > 5.0:
-            print("PD", out[7], out[6], pd_i)
-            self.sess.run([self._pd_train_op], td_map)
-            out = self.sess.run(
-                self.stats_list,
-                td_map
-            )
-            # else:
-            #     break
+        run_list = [self._train_op]
 
-        # predicted_labels = self.sess.run([self.predicted_labels], td_map)
-        # print(predicted_labels)
-        # print(np.sum(predicted_labels, axis=-1))
+        if out[7] < 1.0:
+            run_list += [self._pd_train_op]
 
-        print("POLICY")
-        self.sess.run([self._train_op], td_map)
+        if out[5] > 2.0:
+            run_list += [self._disc_train_op]
 
-        # if self.training_i % train_frequency == 0:
-        # for d_i in range(10):
-        if out[5] > 1.0:
-            print("DISC", out[5], out[6], d_i)
-            self.sess.run([self._disc_train_op], td_map)
-            out = self.sess.run(
-                self.stats_list,
-                td_map
-            )
-            # else:
-            #     break
+        self.sess.run(run_list, td_map)
 
         self.training_i += 1
 

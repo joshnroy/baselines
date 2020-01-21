@@ -54,7 +54,7 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth)
-        out = tf.nn.avg_pool(out, ksize=3, strides=2, padding='SAME')
+        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         out = residual_block(out)
         out = residual_block(out)
         return out
