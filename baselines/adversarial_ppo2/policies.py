@@ -174,7 +174,7 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
             vf_latent=vf_latent,
             sess=sess,
             estimate_q=estimate_q,
-            intermediate_feature=intermediate_feature
+            intermediate_feature=intermediate_feature,
             **extra_tensors
         )
         return policy
