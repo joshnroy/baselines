@@ -61,14 +61,17 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
+    intermediate_feature = None
     for depth in depths:
         out = conv_sequence(out, depth)
+        if intermediate_feature is None:
+            intermediate_feature = out
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
     out = tf.layers.dense(out, 256, activation=tf.nn.relu, name='layer_' + get_layer_num_str())
 
-    return out
+    return out, intermediate_feature
 
 
 @register("mlp")
