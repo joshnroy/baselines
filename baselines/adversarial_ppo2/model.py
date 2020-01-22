@@ -50,6 +50,15 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
+            if len(tf.shape(discriminator_inputs)) > 2:
+                predicted_logits = tf.layers.conv2d(discriminator_inputs, filters=32, kernel_size=(4, 4), stride=(2, 2), activation='relu')
+                predicted_logits = tf.layers.conv2d(predicted_logits, filters=32, kernel_size=(4, 4), stride=(2, 2), activation='relu')
+                predicted_logits = tf.layers.conv2d(predicted_logits, filters=64, kernel_size=(4, 4), stride=(2, 2), activation='relu')
+                predicted_logits = tf.layers.conv2d(predicted_logits, filters=64, kernel_size=(4, 4), stride=(2, 2), activation='relu')
+                predicted_logits = tf.layers.flatten(predicted_logits)
+                print(predicted_logits)
+                sys.exit()
+
             predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", discriminator_inputs))
             for i in range(2, 2+3):
                 predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
