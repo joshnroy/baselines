@@ -123,15 +123,15 @@ class Model(object):
         pd_loss = -discriminator_loss_clipped
         pd_loss *= self.disc_coeff
 
-        p_grads = self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
+        p_grads = self.update_policy_params(comm, loss + pd_loss, mpi_rank_weight, LR, max_grad_norm)
         p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
 
-        pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
-        pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
+        # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
+        # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads', 'pd_grads']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads, pd_grads]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
 
 
         self.train_model = train_model
@@ -182,8 +182,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.pd_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
-            # self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+            self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         pd_grads_and_var = self.trainer.compute_gradients(pd_loss, params)
         pd_grads, pd_var = zip(*pd_grads_and_var)
 
@@ -203,8 +203,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            # self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-            self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
         # disc_grads, disc_var = zip(*disc_grads_and_var)
@@ -247,11 +247,11 @@ class Model(object):
 
         run_list = [self._train_op]
 
-        if out[7] < 1.0:
-            run_list += [self._pd_train_op]
+#         if out[7] < 1.0:
+#             run_list += [self._pd_train_op]
 
-        if out[5] > 2.0:
-            run_list += [self._disc_train_op]
+        # if out[5] > 2.0:
+        run_list += [self._disc_train_op]
 
         self.sess.run(run_list, td_map)
 
