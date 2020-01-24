@@ -48,9 +48,11 @@ def build_discriminator(inputs):
         out = residual_block(out)
         return out
 
-    out = inputs
-    for depth in [32, 32]:
-        out = conv_sequence(out, depth)
+    out = tf.nn.tanh(inputs[0])
+    depths = [32, 32]
+    for i in range(len(depths)):
+        depth = depths[i]
+        out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)

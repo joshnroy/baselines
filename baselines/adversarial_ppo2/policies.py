@@ -43,7 +43,8 @@ class PolicyWithValue(object):
 
         vf_latent = tf.layers.flatten(vf_latent)
         latent = tf.layers.flatten(latent)
-        self.intermediate_feature = tf.nn.tanh(latent) if intermediate_feature is None else tf.nn.tanh(intermediate_feature)
+        self.intermediate_feature = intermediate_feature
+        # self.intermediate_feature = tf.nn.tanh(latent) if intermediate_feature is None else tf.nn.tanh(intermediate_feature)
 
         # Based on the action space, will select what probability distribution type
         self.pdtype = make_pdtype(env.action_space)
