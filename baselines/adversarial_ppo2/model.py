@@ -14,6 +14,50 @@ try:
 except ImportError:
     MPI = None
 
+def build_discriminator(inputs):
+    """
+    Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
+    Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
+    """
+
+    layer_num = 0
+
+    def get_layer_num_str():
+        nonlocal layer_num
+        num_str = str(layer_num)
+        layer_num += 1
+        return num_str
+
+    def conv_layer(out, depth):
+        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str())
+
+    def residual_block(inputs):
+        depth = inputs.get_shape()[-1].value
+
+        out = tf.nn.leaky_relu(inputs)
+
+        out = conv_layer(out, depth)
+        out = tf.nn.leaky_relu(out)
+        out = conv_layer(out, depth)
+        return out + inputs
+
+    def conv_sequence(inputs, depth):
+        out = conv_layer(inputs, depth)
+        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
+        out = residual_block(out)
+        out = residual_block(out)
+        return out
+
+    out = inputs
+    for depth in [32, 32]:
+        out = conv_sequence(out, depth)
+
+    out = tf.layers.flatten(out)
+    out = tf.nn.leaky_relu(out)
+    out = tf.layers.dense(out, 200, name='layer_' + get_layer_num_str())
+
+    return out
+
 class Model(object):
     """
     We use this object to :
@@ -50,19 +94,21 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
-            predicted_logits = tf.layers.conv2d(discriminator_inputs, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            predicted_logits = tf.layers.conv2d(predicted_logits, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            predicted_logits = tf.layers.conv2d(predicted_logits, filters=64, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            predicted_logits = tf.layers.flatten(predicted_logits)
+            # predicted_logits = tf.layers.conv2d(discriminator_inputs, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
+            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
+            # predicted_logits = tf.layers.conv2d(predicted_logits, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
+            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
+            # predicted_logits = tf.layers.conv2d(predicted_logits, filters=64, kernel_size=(4, 4), strides=(2, 2), activation='relu')
+            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
+            # predicted_logits = tf.layers.flatten(predicted_logits)
 
-            predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", predicted_logits))
-            # for i in range(2, 2+3):
-            #     predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
-            #     predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
-            predicted_logits = dense(512, 200, "dense_out", predicted_logits)
+            # predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", predicted_logits))
+            # # for i in range(2, 2+3):
+            # #     predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
+            # #     predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
+            # predicted_logits = dense(512, 200, "dense_out", predicted_logits)
+
+            predicted_logits = build_discriminator(discriminator_inputs)
 
             self.predicted_labels = tf.nn.softmax(predicted_logits)
 

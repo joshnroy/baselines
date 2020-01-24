@@ -54,22 +54,24 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth)
-        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
+        temp = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
+        out = residual_block(temp)
         out = residual_block(out)
-        out = residual_block(out)
-        return out
+        return out, temp
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
     intermediate_feature = None
     for depth in depths:
-        out = conv_sequence(out, depth)
+        out, temp = conv_sequence(out, depth)
         if intermediate_feature is None:
-            intermediate_feature = out
+            intermediate_feature = temp
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
-    out = tf.layers.dense(out, 256, activation=tf.nn.relu, name='layer_' + get_layer_num_str())
+    # out = tf.layers.dense(out, 256, activation=tf.nn.relu, name='layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out)
 
     return out, intermediate_feature
 
