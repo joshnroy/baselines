@@ -54,10 +54,10 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth)
-        temp = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
-        out = residual_block(temp)
+        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         out = residual_block(out)
-        return out, temp
+        out = residual_block(out)
+        return out, out
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 

@@ -1,6 +1,6 @@
 def mujoco():
     return dict(
-        nsteps=2048,
+        nsteps=1024,
         nminibatches=32,
         lam=0.95,
         gamma=0.99,

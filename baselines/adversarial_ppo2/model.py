@@ -306,8 +306,8 @@ class Model(object):
 #         if out[7] < 1.0:
 #             run_list += [self._pd_train_op]
 
-        # if out[5] > 2.0:
-        run_list += [self._disc_train_op]
+        if out[5] > 0.5:
+            run_list += [self._disc_train_op]
 
         self.sess.run(run_list, td_map)
 
