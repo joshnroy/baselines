@@ -132,6 +132,8 @@ class Model(object):
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
         discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32))
+        # discriminator_accuracy = tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32)
+        # tf.print(discriminator_accuracy)
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -310,6 +312,12 @@ class Model(object):
             run_list += [self._disc_train_op]
 
         self.sess.run(run_list, td_map)
+
+        predictions = self.sess.run([tf.argmax(self.predicted_labels, axis=1)], td_map)[0]
+
+        print("labels", labels)
+        print("predictions", predictions)
+        sys.exit()
 
         self.training_i += 1
 
