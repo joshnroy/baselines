@@ -56,7 +56,7 @@ def build_discriminator(inputs):
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
-    out = tf.layers.dense(out, 200, name='layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 5000, name='layer_' + get_layer_num_str())
 
     return out
 
@@ -108,7 +108,7 @@ class Model(object):
             # # for i in range(2, 2+3):
             # #     predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
             # #     predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
-            # predicted_logits = dense(512, 200, "dense_out", predicted_logits)
+            # predicted_logits = dense(512, 5000, "dense_out", predicted_logits)
 
             predicted_logits = build_discriminator(discriminator_inputs)
 
@@ -171,9 +171,9 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 200.)
+        self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 5000.)
         # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
-        # pd_loss = tf.reduce_mean(tf.abs(self.predicted_labels - (1. / 200.)))
+        # pd_loss = tf.reduce_mean(tf.abs(self.predicted_labels - (1. / 5000.)))
         pd_loss = -discriminator_loss_clipped
         pd_loss *= self.disc_coeff
 
