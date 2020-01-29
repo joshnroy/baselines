@@ -131,9 +131,10 @@ class Model(object):
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
+
+        # self.argmaxed_predicted_logits = tf.argmax(predicted_logits, axis=1, output_type=tf.int32)
+
         discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32))
-        # discriminator_accuracy = tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32)
-        # tf.print(discriminator_accuracy)
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -172,8 +173,6 @@ class Model(object):
 
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
-
-        discriminator_loss *= self.disc_coeff
 
         self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 200.)
         # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
@@ -313,11 +312,7 @@ class Model(object):
 
         self.sess.run(run_list, td_map)
 
-        predictions = self.sess.run([tf.argmax(self.predicted_labels, axis=1)], td_map)[0]
-
-        print("labels", labels)
-        print("predictions", predictions)
-        sys.exit()
+        # predictions = self.sess.run([self.argmaxed_predicted_logits], td_map)[0]
 
         self.training_i += 1
 

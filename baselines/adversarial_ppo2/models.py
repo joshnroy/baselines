@@ -56,6 +56,7 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         out = conv_layer(inputs, depth)
         out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         temp = residual_block(out)
+        temp += tf.random.normal(temp.shape, mean=0., stddev=0.1)
         out = residual_block(temp)
         return out, temp
 

@@ -120,9 +120,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
     if load_path is not None:
         model.load(load_path)
     # Instantiate the runner object
-    runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
+    runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, train=True)
     if eval_env is not None:
-        eval_runner = Runner(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
+        eval_runner = Runner(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, train=False)
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:

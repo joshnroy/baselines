@@ -10,12 +10,13 @@ class Runner(AbstractEnvRunner):
     run():
     - Make a mini batch
     """
-    def __init__(self, *, env, model, nsteps, gamma, lam):
+    def __init__(self, *, env, model, nsteps, gamma, lam, train=True):
         super().__init__(env=env, model=model, nsteps=nsteps)
         # Lambda used in GAE (General Advantage Estimation)
         self.lam = lam
         # Discount rate
         self.gamma = gamma
+        self.train = train
 
     def run(self):
         # Here, we init the lists that will contain the mb of experiences
@@ -27,7 +28,7 @@ class Runner(AbstractEnvRunner):
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
-            actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones)
+            actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones, train=self.train)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
