@@ -39,8 +39,8 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth):
-        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str())
+    def conv_layer(out, depth, strides=(1, 1)):
+        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
@@ -53,12 +53,12 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth)
-        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
-        temp = residual_block(out)
-        temp += tf.random.normal(temp.shape, mean=0., stddev=0.1)
-        out = residual_block(temp)
-        return out, temp
+        out = conv_layer(inputs, depth, strides=(2, 2))
+        # temp = tf.nn.avg_pool(out, ksize=3, strides=2, padding='SAME')
+        temp += tf.random.normal(temp.shape, mean=0., stddev=1.0)
+        out = residual_block(out)
+        out = residual_block(out)
+        return out, out
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
