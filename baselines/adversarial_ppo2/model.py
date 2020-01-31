@@ -28,8 +28,8 @@ def build_discriminator(inputs):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth):
-        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str())
+    def conv_layer(out, depth, strides=(1, 1)):
+        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
@@ -37,13 +37,16 @@ def build_discriminator(inputs):
         out = tf.nn.leaky_relu(inputs)
 
         out = conv_layer(out, depth)
+        out = tf.layers.batch_normalization(out)
         out = tf.nn.leaky_relu(out)
         out = conv_layer(out, depth)
+        out = tf.layers.batch_normalization(out)
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth)
-        out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
+        out = conv_layer(inputs, depth, strides=(2, 2))
+        out = tf.layers.batch_normalization(out)
+        # out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         out = residual_block(out)
         out = residual_block(out)
         return out
@@ -56,7 +59,7 @@ def build_discriminator(inputs):
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
-    out = tf.layers.dense(out, 5000, name='layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 200, name='layer_' + get_layer_num_str())
 
     return out
 
@@ -78,6 +81,9 @@ class Model(object):
         self.sess = sess = get_session()
 
         self.disc_coeff = disc_coeff
+
+        self.gen_training = False
+        self.disc_training = True
 
         if MPI is not None and comm is None:
             comm = MPI.COMM_WORLD
@@ -126,11 +132,13 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
+        self.TRAIN_GEN = tf.placeholder(tf.float32, [])
+
         # Seed labels for the discriminator
         self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
-        discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
+        # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
 
         # self.argmaxed_predicted_logits = tf.argmax(predicted_logits, axis=1, output_type=tf.int32)
 
@@ -177,8 +185,9 @@ class Model(object):
         self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 200.)
         # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
         # pd_loss = tf.reduce_mean(tf.abs(self.predicted_labels - (1. / 5000.)))
-        pd_loss = -discriminator_loss_clipped
+        pd_loss = -discriminator_loss
         pd_loss *= self.disc_coeff
+        pd_loss *= self.TRAIN_GEN
 
         p_grads = self.update_policy_params(comm, loss + pd_loss, mpi_rank_weight, LR, max_grad_norm)
         p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
@@ -187,8 +196,8 @@ class Model(object):
         # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads', 'TRAIN_GEN']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads, self.TRAIN_GEN]
 
 
         self.train_model = train_model
@@ -272,13 +281,16 @@ class Model(object):
         # disc_grads_and_var = list(zip(disc_grads, disc_var))
         self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
 
-    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, states=None):
+    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, train_disc=None, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
 
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+
+        self.gen_training = not train_disc
+        self.disc_training = train_disc
 
         td_map = {
             self.train_model.X : obs,
@@ -289,32 +301,44 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.LABELS : labels
+            self.LABELS : labels,
+            self.TRAIN_GEN: 0.
         }
         if states is not None:
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(
-            self.stats_list,
-            td_map
-        )
+        out = self.sess.run(self.stats_list, td_map)
 
-        train_frequency = 10
+        # if self.training_i % 50 == 0:
+        #     self.gen_training = not self.gen_training
+        #     self.disc_training = not self.disc_training
 
-        run_list = [self._train_op]
+        # if out[5] > 5.:
+        #     self.gen_training = False
+        # elif out[5] < 1.:
+        #     self.gen_training = True
 
-#         if out[7] < 1.0:
-#             run_list += [self._pd_train_op]
+        # if out[5] > 5.0:
+        #     self.disc_training = True
 
-        if out[5] > 0.5:
+        # elif out[5] < 1.0:
+        #     self.disc_training = False
+
+        if self.gen_training:
+            td_map[self.TRAIN_GEN] = 1.
+
+        run_list = [self.TRAIN_GEN, self._train_op]
+
+        print(out[5], self.gen_training, self.disc_training)
+
+        if self.disc_training:
             run_list += [self._disc_train_op]
 
-        self.sess.run(run_list, td_map)
-
-        # predictions = self.sess.run([self.argmaxed_predicted_logits], td_map)[0]
+        temp_train_gen = self.sess.run(run_list, td_map)[0]
 
         self.training_i += 1
 
+        out[11] = temp_train_gen
         return out
 

@@ -19,12 +19,14 @@ def constfn(val):
         return val
     return f
 
-def calc_labels(labels_dict, seeds):
+def calc_labels(labels_dict, seeds, flip_prob=0.9, range_l=0.3):
     ret = []
     for seed in seeds:
         if seed not in labels_dict:
             labels_dict[seed] = len(labels_dict)
-        ret.append(labels_dict[seed])
+        flip = np.random.rand() < flip_prob
+        l = labels_dict[seed] if flip else np.random.randint(200)
+        ret.append(l)
     return np.asarray(ret)
 
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
@@ -169,6 +171,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
         if states is None: # nonrecurrent version
             # Index of each element of batch_size
             # Create the indices array
+            train_disc = True
             inds = np.arange(nbatch)
             for _ in range(noptepochs):
                 # Randomize the indexes
@@ -178,8 +181,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
-                    e_lossvals = model.train(lrnow, cliprangenow, *slices)
+                    e_lossvals = model.train(lrnow, cliprangenow, *slices, train_disc=train_disc)
                     mblossvals.append(e_lossvals)
+                train_disc = not train_disc
         else: # recurrent version
             assert nenvs % nminibatches == 0
             envsperbatch = nenvs // nminibatches
