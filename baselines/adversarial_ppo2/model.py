@@ -37,12 +37,15 @@ def build_discriminator(inputs):
         out = tf.nn.leaky_relu(inputs)
 
         out = conv_layer(out, depth)
+        out = tf.layers.batch_normalization(out)
         out = tf.nn.leaky_relu(out)
         out = conv_layer(out, depth)
+        out = tf.layers.batch_normalization(out)
         return out + inputs
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth, strides=(2, 2))
+        out = tf.layers.batch_normalization(out)
         # out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         out = residual_block(out)
         out = residual_block(out)
