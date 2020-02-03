@@ -14,11 +14,14 @@ try:
 except ImportError:
     MPI = None
 
-def build_discriminator(inputs):
+def build_discriminator(inputs, num_levels):
     """
     Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
     Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
     """
+
+    # print("NUM_LEVELS", num_levels)
+    # sys.exit()
 
     layer_num = 0
 
@@ -58,7 +61,7 @@ def build_discriminator(inputs):
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
-    out = tf.layers.dense(out, 200, name='layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
 
     return out
 
@@ -76,7 +79,7 @@ class Model(object):
     - Save load the model
     """
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
-                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None, disc_coeff=1.):
+                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None, disc_coeff=1., num_levels=200):
         self.sess = sess = get_session()
 
         self.disc_coeff = disc_coeff
@@ -101,7 +104,7 @@ class Model(object):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
 
-            predicted_logits = build_discriminator(discriminator_inputs)
+            predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
             self.predicted_labels = tf.nn.softmax(predicted_logits)
 
