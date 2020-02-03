@@ -24,8 +24,9 @@ def calc_labels(labels_dict, seeds, flip_prob=0.9, range_l=0.3):
     for seed in seeds:
         if seed not in labels_dict:
             labels_dict[seed] = len(labels_dict)
-        flip = np.random.rand() < flip_prob
-        l = labels_dict[seed] if flip else np.random.randint(200)
+        # flip = np.random.rand() < flip_prob
+        flip = False
+        l = np.random.randint(200) if flip else labels_dict[seed]
         ret.append(l)
     return np.asarray(ret)
 

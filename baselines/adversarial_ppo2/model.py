@@ -46,7 +46,6 @@ def build_discriminator(inputs):
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth, strides=(2, 2))
         out = tf.layers.batch_normalization(out)
-        # out = tf.nn.max_pool(out, ksize=3, strides=2, padding='SAME')
         out = residual_block(out)
         out = residual_block(out)
         return out
@@ -82,7 +81,7 @@ class Model(object):
 
         self.disc_coeff = disc_coeff
 
-        self.gen_training = False
+        self.gen_training = True
         self.disc_training = True
 
         if MPI is not None and comm is None:
@@ -101,20 +100,6 @@ class Model(object):
         with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
             discriminator_inputs = train_model.intermediate_feature
-
-            # predicted_logits = tf.layers.conv2d(discriminator_inputs, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            # predicted_logits = tf.layers.conv2d(predicted_logits, filters=32, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            # predicted_logits = tf.layers.conv2d(predicted_logits, filters=64, kernel_size=(4, 4), strides=(2, 2), activation='relu')
-            # predicted_logits = tf.nn.leaky_relu(predicted_logits)
-            # predicted_logits = tf.layers.flatten(predicted_logits)
-
-            # predicted_logits = tf.nn.leaky_relu(dense(256, 512, "dense1", predicted_logits))
-            # # for i in range(2, 2+3):
-            # #     predicted_logits = tf.nn.leaky_relu(dense(512, 512, "dense" + str(i), predicted_logits))
-            # #     predicted_logits = tf.nn.dropout(predicted_logits, keep_prob=0.8)
-            # predicted_logits = dense(512, 5000, "dense_out", predicted_logits)
 
             predicted_logits = build_discriminator(discriminator_inputs)
 
@@ -289,8 +274,8 @@ class Model(object):
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
-        self.gen_training = not train_disc
-        self.disc_training = train_disc
+        # self.gen_training = not train_disc
+        # self.disc_training = train_disc
 
         td_map = {
             self.train_model.X : obs,
@@ -309,6 +294,15 @@ class Model(object):
             td_map[self.train_model.M] = masks
 
         out = self.sess.run(self.stats_list, td_map)
+        predicted_labels = self.sess.run(self.predicted_labels, td_map)
+        # print("################")
+        # for x, y in zip(self.loss_names, out):
+        #     print(x, y)
+        # print(labels.shape)
+        # print(predicted_labels)
+        # for l in labels:
+        #     print(l)
+        # sys.exit()
 
         # if self.training_i % 50 == 0:
         #     self.gen_training = not self.gen_training
@@ -330,7 +324,7 @@ class Model(object):
 
         run_list = [self.TRAIN_GEN, self._train_op]
 
-        print(out[5], self.gen_training, self.disc_training)
+        # print(out[5], self.gen_training, self.disc_training)
 
         if self.disc_training:
             run_list += [self._disc_train_op]
