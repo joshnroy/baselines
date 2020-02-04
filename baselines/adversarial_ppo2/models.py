@@ -69,6 +69,7 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
     for depth in depths:
         out, temp = conv_sequence(out, depth)
         intermediate_features.append(temp)
+        # intermediate_features.append(temp)
         # if intermediate_feature is None:
         #     intermediate_feature = temp
 

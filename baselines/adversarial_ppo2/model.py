@@ -31,8 +31,8 @@ def build_discriminator(inputs, num_levels):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth, strides=(1, 1)):
-        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
+    def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
+        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
@@ -54,14 +54,18 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs[0])
-    depths = [32, 32]
-    for i in range(len(depths)):
-        depth = depths[i]
-        out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
+    out = tf.nn.leaky_relu(conv_layer(out, 32, kernel_size=1))
+    out = tf.nn.leaky_relu(conv_layer(out, 64, kernel_size=1))
+    out = conv_layer(out, num_levels)
 
-    out = tf.layers.flatten(out)
-    out = tf.nn.leaky_relu(out)
-    out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
+    # depths = [32, 32]
+    # for i in range(len(depths)):
+    #     depth = depths[i]
+    #     out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
+
+    # out = tf.layers.flatten(out)
+    # out = tf.nn.leaky_relu(out)
+    # out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
 
     return out
 
@@ -79,10 +83,15 @@ class Model(object):
     - Save load the model
     """
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
-                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None, disc_coeff=1., num_levels=200):
+                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None, microbatch_size=None, disc_coeff=None, num_levels=200):
         self.sess = sess = get_session()
 
-        self.disc_coeff = disc_coeff
+        self.num_levels = num_levels
+
+        if disc_coeff is not None:
+            self.disc_coeff = disc_coeff
+        else:
+            self.disc_coeff = tf.placeholder(tf.float32, [])
 
         self.gen_training = True
         self.disc_training = True
@@ -123,14 +132,14 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 32, 32])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
 
         # self.argmaxed_predicted_logits = tf.argmax(predicted_logits, axis=1, output_type=tf.int32)
 
-        discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=1, output_type=tf.int32)), tf.float32))
+        discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=-1, output_type=tf.int32)), tf.float32))
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -170,22 +179,26 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        self.equal_prob = tf.zeros_like(predicted_logits) + (1. / 200.)
-        # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.equal_prob, logits=predicted_logits))
-        # pd_loss = tf.reduce_mean(tf.abs(self.predicted_labels - (1. / 5000.)))
-        pd_loss = -discriminator_loss
-        pd_loss *= self.disc_coeff
-        pd_loss *= self.TRAIN_GEN
+        self.equal_prob = tf.zeros_like(predicted_logits) + (1. / float(num_levels))
 
-        p_grads = self.update_policy_params(comm, loss + pd_loss, mpi_rank_weight, LR, max_grad_norm)
+        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits))), axis=-1))
+        # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.equal_prob, logits=predicted_logits))
+        # pd_loss = -discriminator_loss
+        # pd_loss *= self.TRAIN_GEN
+
+        p_grads = self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
         p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
 
         # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
         # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads', 'TRAIN_GEN']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads, self.TRAIN_GEN]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
+        if isinstance(self.disc_coeff, tf.Tensor):
+            self.loss_names.append("disc_coeff")
+            self.stats_list.append(self.disc_coeff)
+
 
 
         self.train_model = train_model
@@ -280,6 +293,14 @@ class Model(object):
         # self.gen_training = not train_disc
         # self.disc_training = train_disc
 
+        for l in labels:
+            if l >= self.num_levels:
+                print(l, self.num_levels)
+                sys.exit()
+
+        labels = np.array([np.zeros((32, 32), dtype=np.int64) + l for l in labels])
+
+        print("training_i", self.training_i)
         td_map = {
             self.train_model.X : obs,
             self.A : actions,
@@ -290,44 +311,21 @@ class Model(object):
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
             self.LABELS : labels,
-            self.TRAIN_GEN: 0.
+            self.TRAIN_GEN: 0.,
         }
+        if isinstance(self.disc_coeff, tf.Tensor):
+            td_map[self.disc_coeff] = (self.training_i / 10000.)
+
         if states is not None:
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
         out = self.sess.run(self.stats_list, td_map)
-        predicted_labels = self.sess.run(self.predicted_labels, td_map)
-        # print("################")
-        # for x, y in zip(self.loss_names, out):
-        #     print(x, y)
-        # print(labels.shape)
-        # print(predicted_labels)
-        # for l in labels:
-        #     print(l)
-        # sys.exit()
-
-        # if self.training_i % 50 == 0:
-        #     self.gen_training = not self.gen_training
-        #     self.disc_training = not self.disc_training
-
-        # if out[5] > 5.:
-        #     self.gen_training = False
-        # elif out[5] < 1.:
-        #     self.gen_training = True
-
-        # if out[5] > 5.0:
-        #     self.disc_training = True
-
-        # elif out[5] < 1.0:
-        #     self.disc_training = False
 
         if self.gen_training:
             td_map[self.TRAIN_GEN] = 1.
 
         run_list = [self.TRAIN_GEN, self._train_op]
-
-        # print(out[5], self.gen_training, self.disc_training)
 
         if self.disc_training:
             run_list += [self._disc_train_op]
@@ -336,6 +334,5 @@ class Model(object):
 
         self.training_i += 1
 
-        out[11] = temp_train_gen
         return out
 

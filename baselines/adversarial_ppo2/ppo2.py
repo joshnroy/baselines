@@ -33,7 +33,7 @@ def calc_labels(labels_dict, seeds, flip_prob=0.9, range_l=0.3):
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
-            save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=1.0, **network_kwargs):
+            save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=None, num_levels=0, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
 
@@ -118,7 +118,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
     model = model_fn(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
-                    max_grad_norm=max_grad_norm, comm=comm, mpi_rank_weight=mpi_rank_weight, disc_coeff=disc_coeff)
+                    max_grad_norm=max_grad_norm, comm=comm, mpi_rank_weight=mpi_rank_weight, disc_coeff=disc_coeff, num_levels=num_levels)
 
     if load_path is not None:
         model.load(load_path)
