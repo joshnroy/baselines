@@ -56,7 +56,7 @@ def build_discriminator(inputs, num_levels):
     out = tf.nn.tanh(inputs[0])
     out = tf.nn.leaky_relu(conv_layer(out, 32, kernel_size=1))
     out = tf.nn.leaky_relu(conv_layer(out, 64, kernel_size=1))
-    out = conv_layer(out, num_levels)
+    out = conv_layer(out, num_levels, kernel_size=1)
 
     # depths = [32, 32]
     # for i in range(len(depths)):
