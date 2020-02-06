@@ -64,7 +64,7 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return out, temp
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
-    out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
+    # out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
     # out = tf.nn.batch_normalization(out)
 
     intermediate_features = []
