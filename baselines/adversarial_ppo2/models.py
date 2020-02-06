@@ -55,15 +55,17 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out)
+        temp = conv_layer(inputs, depth, strides=(2, 2))
+        out = tf.layers.batch_normalization(temp)
         # temp = tf.nn.avg_pool(out, ksize=3, strides=2, padding='SAME')
         # out += tf.random.normal(out.shape, mean=0., stddev=0.1)
         out = residual_block(out)
         out = residual_block(out)
-        return out, out
+        return out, temp
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
+    out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
+    # out = tf.nn.batch_normalization(out)
 
     intermediate_features = []
     for depth in depths:

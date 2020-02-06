@@ -53,9 +53,10 @@ def build_discriminator(inputs, num_levels):
         out = residual_block(out)
         return out
 
-    out = tf.nn.tanh(inputs[0])
+    out = tf.nn.tanh(inputs[1])
+    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=3))
     out = tf.nn.leaky_relu(conv_layer(out, 32, kernel_size=1))
-    out = tf.nn.leaky_relu(conv_layer(out, 64, kernel_size=1))
+    # out = tf.nn.leaky_relu(conv_layer(out, 64, kernel_size=1))
     out = conv_layer(out, num_levels, kernel_size=1)
 
     # depths = [32, 32]
@@ -132,7 +133,7 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 32, 32])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 16, 16])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
@@ -179,22 +180,23 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        self.equal_prob = tf.zeros_like(predicted_logits) + (1. / float(num_levels))
-
-        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits))), axis=-1))
-        # pd_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.equal_prob, logits=predicted_logits))
+        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
         # pd_loss = -discriminator_loss
         # pd_loss *= self.TRAIN_GEN
 
-        p_grads = self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
-        p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
+        # p_grads = self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
+        # p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
 
         # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
         # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
-        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        # self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
+        self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+
+        # self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
+        # self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
@@ -216,6 +218,40 @@ class Model(object):
             sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
 
         self.training_i = 0
+
+    def update_all_params(self, comm, ppo_loss, disc_loss, mpi_rank_weight, LR, max_grad_norm):
+        ppo_params = tf.trainable_variables('ppo2_model')
+        disc_params = tf.trainable_variables('discriminator_model')
+
+        if comm is not None and comm.Get_size() > 1:
+            self.trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
+        else:
+            self.trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+
+        ppo_var_and_grads = self.trainer.compute_gradients(ppo_loss, ppo_params)
+        ppo_grads, ppo_var = zip(*ppo_var_and_grads)
+
+        disc_var_and_grads = self.trainer.compute_gradients(disc_loss, disc_params)
+        disc_grads, disc_var = zip(*disc_var_and_grads)
+
+        if max_grad_norm is not None:
+            grads, grad_norm = tf.clip_by_global_norm(ppo_grads + disc_grads, max_grad_norm)
+            # disc_grads, disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
+
+        # ppo_grads_and_var = list(zip(ppo_grads, ppo_var))
+        # disc_grads_and_var = list(zip(disc_grads, disc_var))
+
+        grads_and_var = list(zip(grads, ppo_var + disc_var))
+
+        self.all_train_op = self.trainer.apply_gradients(grads_and_var)
+
+        # self.ppo_grads = ppo_grads
+        # self.ppo_var = ppo_var
+        # self.ppo_all_train_op = self.trainer.apply_gradients(ppo_grads_and_var)
+
+        # self.disc_grads = disc_grads
+        # self.disc_var = disc_var
+        # self.disc_all_train_op = self.trainer.apply_gradients(disc_grads_and_var)
 
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
@@ -242,25 +278,6 @@ class Model(object):
         self._train_op = self.trainer.apply_gradients(grads_and_var)
 
         return grads
-
-    def update_policy_discriminator_params(self, comm, pd_loss, mpi_rank_weight, LR, max_grad_norm):
-        # UPDATE POLICY PARAMETERS USING DISCRIMINTATOR_LOSS
-        params = tf.trainable_variables('ppo2_model')
-        if comm is not None and comm.Get_size() > 1:
-            self.pd_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
-        else:
-            # self.pd_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
-            self.pd_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-        pd_grads_and_var = self.trainer.compute_gradients(pd_loss, params)
-        pd_grads, pd_var = zip(*pd_grads_and_var)
-
-        if max_grad_norm is not None:
-            # Clip the gradients (normalize)
-            pd_grads, _pd_grad_norm = tf.clip_by_global_norm(pd_grads, max_grad_norm)
-        pd_grads_and_var = list(zip(pd_grads, pd_var))
-        self._pd_train_op = self.trainer.apply_gradients(pd_grads_and_var)
-
-        return pd_grads
 
     def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
@@ -298,7 +315,7 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        labels = np.array([np.zeros((32, 32), dtype=np.int64) + l for l in labels])
+        labels = np.array([np.zeros((16, 16), dtype=np.int64) + l for l in labels])
 
         print("training_i", self.training_i)
         td_map = {
@@ -320,17 +337,20 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(self.stats_list, td_map)
+        # out = self.sess.run(self.stats_list + [self.ppo_all_train_op, self.disc_all_train_op], td_map)[:-2]
+        out = self.sess.run(self.stats_list + [self.all_train_op], td_map)[:-1]
 
-        if self.gen_training:
-            td_map[self.TRAIN_GEN] = 1.
+        # print("disc loss", out[5])
 
-        run_list = [self.TRAIN_GEN, self._train_op]
+        # if self.gen_training:
+        #     td_map[self.TRAIN_GEN] = 1.
 
-        if self.disc_training:
-            run_list += [self._disc_train_op]
+        # run_list = [self.TRAIN_GEN, self._train_op]
 
-        temp_train_gen = self.sess.run(run_list, td_map)[0]
+        # if self.disc_training:
+        #     run_list += [self._disc_train_op]
+
+        # temp_train_gen = self.sess.run(run_list, td_map)[0]
 
         self.training_i += 1
 
