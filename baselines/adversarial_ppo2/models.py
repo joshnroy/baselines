@@ -39,8 +39,8 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth, strides=(1, 1)):
-        return tf.layers.conv2d(out, depth, 3, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
+    def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
+        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
@@ -55,29 +55,32 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        temp = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(temp)
+        out = conv_layer(inputs, depth, strides=(2, 2))
+        out = tf.layers.batch_normalization(out)
         # temp = tf.nn.avg_pool(out, ksize=3, strides=2, padding='SAME')
         # out += tf.random.normal(out.shape, mean=0., stddev=0.1)
         out = residual_block(out)
         out = residual_block(out)
-        return out, temp
+        return out, out
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
     # out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
     # out = tf.nn.batch_normalization(out)
 
-    intermediate_features = []
+    intermediate_features = None
     for depth in depths:
-        out, temp = conv_sequence(out, depth)
-        intermediate_features.append(temp)
-        # intermediate_features.append(temp)
-        # if intermediate_feature is None:
-        #     intermediate_feature = temp
+        out, _ = conv_sequence(out, depth)
+        if intermediate_features is None:
+            out = conv_layer(out, 1, kernel_size=1)
+
+            attention = tf.nn.sigmoid(conv_layer(out, 1, kernel_size=9))
+            out = tf.multiply(attention, out)
+            intermediate_features = out
+
+
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
-    # out = tf.layers.dense(out, 256, activation=tf.nn.relu, name='layer_' + get_layer_num_str())
     out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out)
 
