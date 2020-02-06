@@ -54,7 +54,7 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=3, strides=2))
+    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=1, strides=2))
     out = tf.nn.leaky_relu(conv_layer(out, 32, kernel_size=1))
     out = conv_layer(out, num_levels, kernel_size=1)
 
@@ -316,7 +316,6 @@ class Model(object):
 
         labels = np.array([np.zeros((16, 16), dtype=np.int64) + l for l in labels])
 
-        print("training_i", self.training_i)
         td_map = {
             self.train_model.X : obs,
             self.A : actions,

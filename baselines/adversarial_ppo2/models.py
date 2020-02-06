@@ -66,14 +66,14 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
     out = tf.cast(unscaled_images, tf.float32) / 255.
     # out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
     # out = tf.nn.batch_normalization(out)
-
     intermediate_features = None
+
     for depth in depths:
         out, _ = conv_sequence(out, depth)
         if intermediate_features is None:
-            out = conv_layer(out, 1, kernel_size=1)
+            out = conv_layer(out, depth, kernel_size=3)
 
-            attention = tf.nn.sigmoid(conv_layer(out, 1, kernel_size=9))
+            attention = tf.nn.sigmoid(conv_layer(out, depth, kernel_size=3))
             out = tf.multiply(attention, out)
             intermediate_features = out
 
