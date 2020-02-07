@@ -65,17 +65,14 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     # out = conv_layer(out, 1, kernel_size=3)
 
-
-    out = conv_sequence(out, depths[0])
-
-    attention = tf.nn.leaky_relu(conv_layer(out, depths[0]))
-    attention = conv_layer(out, depths[0])
-    attention = tf.nn.sigmoid(attention)
-    out = tf.multiply(attention, out)
-    intermediate_features = out
-
-    for depth in depths[1:]:
+    for i, depth in enumerate(depths):
         out = conv_sequence(out, depth)
+        if i == 2:
+            attention = tf.nn.leaky_relu(conv_layer(out, depth))
+            attention = conv_layer(out, depth)
+            attention = tf.nn.sigmoid(attention)
+            out = tf.multiply(attention, out)
+            intermediate_features = out
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)

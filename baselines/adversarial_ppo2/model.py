@@ -131,7 +131,7 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 32, 32])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 8, 8])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
@@ -313,7 +313,7 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        labels = np.array([np.zeros((32, 32), dtype=np.int64) + l for l in labels])
+        labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
 
         td_map = {
             self.train_model.X : obs,
