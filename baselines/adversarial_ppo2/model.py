@@ -54,8 +54,7 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=1, strides=2))
-    out = tf.nn.leaky_relu(conv_layer(out, 32, kernel_size=1))
+    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=1))
     out = conv_layer(out, num_levels, kernel_size=1)
 
     # depths = [32, 32]
@@ -132,7 +131,7 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 16, 16])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 32, 32])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
@@ -314,7 +313,7 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        labels = np.array([np.zeros((16, 16), dtype=np.int64) + l for l in labels])
+        labels = np.array([np.zeros((32, 32), dtype=np.int64) + l for l in labels])
 
         td_map = {
             self.train_model.X : obs,

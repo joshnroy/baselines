@@ -57,27 +57,25 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth, strides=(2, 2))
         out = tf.layers.batch_normalization(out)
-        # temp = tf.nn.avg_pool(out, ksize=3, strides=2, padding='SAME')
-        # out += tf.random.normal(out.shape, mean=0., stddev=0.1)
         out = residual_block(out)
         out = residual_block(out)
-        return out, out
+        return out
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
-    # out = tf.reduce_sum(tf.image.sobel_edges(out), axis=-2)
-    # out = tf.nn.batch_normalization(out)
-    intermediate_features = None
 
-    for depth in depths:
-        out, _ = conv_sequence(out, depth)
-        if intermediate_features is None:
-            out = conv_layer(out, depth, kernel_size=3)
-
-            attention = tf.nn.sigmoid(conv_layer(out, depth, kernel_size=3))
-            out = tf.multiply(attention, out)
-            intermediate_features = out
+    # out = conv_layer(out, 1, kernel_size=3)
 
 
+    out = conv_sequence(out, depths[0])
+
+    attention = tf.nn.leaky_relu(conv_layer(out, depths[0]))
+    attention = conv_layer(out, depths[0])
+    attention = tf.nn.sigmoid(attention)
+    out = tf.multiply(attention, out)
+    intermediate_features = out
+
+    for depth in depths[1:]:
+        out = conv_sequence(out, depth)
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
