@@ -187,9 +187,11 @@ class Model(object):
 
         # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
         # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
-        # self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
+
+        # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         # self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
         # self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
@@ -334,22 +336,16 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        # out = self.sess.run(self.stats_list + [self.ppo_all_train_op, self.disc_all_train_op], td_map)[:-2]
-        out = self.sess.run(self.stats_list + [self.all_train_op], td_map)[:-1]
 
-        # print("disc loss", out[5])
+        print(self.training_i)
+        for _ in range(5):
+            out = self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
+            self.sess.run([self._disc_train_op], td_map)
+            self.training_i += 1
+        # for _ in range(5):
 
-        # if self.gen_training:
-        #     td_map[self.TRAIN_GEN] = 1.
+        # out = self.sess.run(self.stats_list + [self.all_train_op], td_map)[:-1]
 
-        # run_list = [self.TRAIN_GEN, self._train_op]
-
-        # if self.disc_training:
-        #     run_list += [self._disc_train_op]
-
-        # temp_train_gen = self.sess.run(run_list, td_map)[0]
-
-        self.training_i += 1
 
         return out
 
