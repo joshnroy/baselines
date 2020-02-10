@@ -323,7 +323,9 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(self.stats_list + [self._train_op, self.vae_train_op], td_map)[:-2]
+        out = self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
+        for _ in range(10):
+            self.sess.run([self.vae_train_op], td_map)
         self.sess.run([self._disc_train_op], td_map)
         self.training_i += 1
 
