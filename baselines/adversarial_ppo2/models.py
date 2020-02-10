@@ -3,6 +3,7 @@ import tensorflow as tf
 from baselines.a2c import utils
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch
 from baselines.common.mpi_running_mean_std import RunningMeanStd
+import sys
 
 mapping = {}
 
@@ -11,6 +12,26 @@ def register(name):
         mapping[name] = func
         return func
     return _thunk
+
+def build_darla_vae(unscaled_images, emb_size=256, **conv_kwargs):
+    scaled_images = tf.cast(unscaled_images, tf.float32) / 255.
+
+    out = tf.nn.relu(tf.layers.conv2d(scaled_images, 32, 3, padding='same', strides=2))
+    out = tf.nn.relu(tf.layers.conv2d(out, 32, 3, padding='same', strides=2))
+    out = tf.nn.relu(tf.layers.conv2d(out, 64, 3, padding='same', strides=2))
+    out = tf.nn.relu(tf.layers.conv2d(out, 64, 3, padding='same', strides=2))
+
+    out = tf.layers.flatten(out)
+    out = tf.nn.relu(tf.layers.dense(out, 256))
+    out_mean = tf.layers.dense(out, emb_size)
+    out_log_std_sq = tf.layers.dense(out, emb_size)
+
+    eps = tf.random_normal(out_mean.shape, 0, 1, dtype=tf.float32)
+
+    # Reparameterization trick
+    out_sample = out_mean + (tf.sqrt(tf.exp(out_log_std_sq))) * eps
+
+    return out_sample, out_mean, out_log_std_sq
 
 def nature_cnn(unscaled_images, **conv_kwargs):
     """
@@ -72,14 +93,13 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
             attention = conv_layer(out, depth)
             attention = tf.nn.sigmoid(attention)
             out = tf.multiply(attention, out)
-            intermediate_features = out
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
     out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out)
 
-    return out, intermediate_features
+    return out, out
 
 
 @register("mlp")

@@ -16,7 +16,7 @@ class PolicyWithValue(object):
     Encapsulates fields and methods for RL policy and value function estimation with shared parameters
     """
 
-    def __init__(self, env, observations, latent, estimate_q=False, vf_latent=None, sess=None, intermediate_feature=None, **tensors):
+    def __init__(self, env, observations, latent, estimate_q=False, vf_latent=None, sess=None, prob_vars=None, **tensors):
         """
         Parameters:
         ----------
@@ -43,8 +43,10 @@ class PolicyWithValue(object):
 
         vf_latent = tf.layers.flatten(vf_latent)
         latent = tf.layers.flatten(latent)
-        self.intermediate_feature = intermediate_feature
-        # self.intermediate_feature = tf.nn.tanh(latent) if intermediate_feature is None else tf.nn.tanh(intermediate_feature)
+
+        self.z = latent
+        self.z_mean, self.z_log_std_sq = prob_vars
+
 
         # Based on the action space, will select what probability distribution type
         self.pdtype = make_pdtype(env.action_space)
@@ -141,8 +143,11 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
 
         encoded_x = encode_observation(ob_space, encoded_x)
 
+        with tf.variable_scope('vae'):
+            policy_latent, latent_mean, latent_log_std_sq = policy_network(encoded_x)
         with tf.variable_scope('pi', reuse=tf.AUTO_REUSE):
-            policy_latent, intermediate_feature = policy_network(encoded_x)
+            policy_latent = tf.nn.relu(tf.layers.dense(policy_latent, 256))
+            policy_latent = tf.nn.relu(tf.layers.dense(policy_latent, 256))
             if isinstance(policy_latent, tuple):
                 policy_latent, recurrent_tensors = policy_latent
 
@@ -175,7 +180,7 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
             vf_latent=vf_latent,
             sess=sess,
             estimate_q=estimate_q,
-            intermediate_feature=intermediate_feature,
+            prob_vars=(latent_mean, latent_log_std_sq),
             **extra_tensors
         )
         return policy

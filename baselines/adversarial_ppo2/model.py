@@ -14,14 +14,18 @@ try:
 except ImportError:
     MPI = None
 
-def build_discriminator(inputs, num_levels):
-    """
-    Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
-    Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
-    """
+def build_reconstructor(inputs):
+    out = tf.nn.relu(tf.layers.dense(inputs, 256))
+    out = tf.nn.relu(tf.layers.dense(inputs, 1024))
+    out = tf.reshape(out, (-1, 4, 4, 64))
+    out = tf.nn.relu(tf.layers.conv2d_transpose(out, 64, 3, padding='same', strides=2))
+    out = tf.nn.relu(tf.layers.conv2d_transpose(out, 32, 3, padding='same', strides=2))
+    out = tf.nn.relu(tf.layers.conv2d_transpose(out, 32, 3, padding='same', strides=2))
+    out = tf.nn.sigmoid(tf.layers.conv2d_transpose(out, 3, 3, padding='same', strides=2))
 
-    # print("NUM_LEVELS", num_levels)
-    # sys.exit()
+    return out
+
+def build_discriminator(inputs, num_levels):
 
     layer_num = 0
 
@@ -53,18 +57,9 @@ def build_discriminator(inputs, num_levels):
         out = residual_block(out)
         return out
 
-    out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=1))
-    out = conv_layer(out, num_levels, kernel_size=1)
-
-    # depths = [32, 32]
-    # for i in range(len(depths)):
-    #     depth = depths[i]
-    #     out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
-
-    # out = tf.layers.flatten(out)
-    # out = tf.nn.leaky_relu(out)
-    # out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
+    out = inputs
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
+    out = tf.layers.dense(out, num_levels)
 
     return out
 
@@ -105,9 +100,13 @@ class Model(object):
                 train_model = policy(nbatch_train, nsteps, sess)
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
+
+        with tf.variable_scope('vae'):
+            reconstruction = build_reconstructor(train_model.z)
+
         with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
-            discriminator_inputs = train_model.intermediate_feature
+            discriminator_inputs = train_model.z
 
             predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
@@ -128,10 +127,21 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 8, 8])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
+
+        self.train_model = train_model
+        self.act_model = act_model
+        self.step = act_model.step
+        self.value = act_model.value
+        self.initial_state = act_model.initial_state
+
+        # VAE-related
+        reconstruction_loss = tf.reduce_mean(tf.square(tf.cast(self.train_model.X, tf.float32) - reconstruction * 255.), (1, 2, 3))
+        latent_loss = -0.5 * tf.reduce_sum(1. + self.train_model.z_log_std_sq - tf.square(self.train_model.z_mean) - tf.exp(self.train_model.z_log_std_sq), 1)
+        vae_loss = tf.reduce_mean(reconstruction_loss + latent_loss)
+        
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
-
         discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=-1, output_type=tf.int32)), tf.float32))
 
         neglogpac = train_model.pd.neglogp(A)
@@ -166,27 +176,23 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        loss = 1. * (pg_loss - entropy * ent_coef + vf_loss * vf_coef)
 
         pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
+        self.update_vae_params(comm, vae_loss, mpi_rank_weight, LR, max_grad_norm=None)
+
+        self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
         # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'vae_loss', 'reconstruction_loss', 'latent_loss']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), vae_loss, tf.reduce_mean(reconstruction_loss), tf.reduce_mean(latent_loss)]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
-
-        self.train_model = train_model
-        self.act_model = act_model
-        self.step = act_model.step
-        self.value = act_model.value
-        self.initial_state = act_model.initial_state
 
         self.save = functools.partial(save_variables, sess=sess)
         self.load = functools.partial(load_variables, sess=sess)
@@ -246,6 +252,28 @@ class Model(object):
 
         return grads
 
+    def update_vae_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
+        params = tf.trainable_variables('vae') + tf.trainable_variables('ppo2_model/vae')
+        if comm is not None and comm.Get_size() > 1:
+            self.vae_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
+        else:
+            self.vae_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+        grads_and_var = self.vae_trainer.compute_gradients(loss, params)
+        grads, var = zip(*grads_and_var)
+
+        if max_grad_norm is not None:
+            # Clip the gradients (normalize)
+            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
+        grads_and_var = list(zip(grads, var))
+        # zip aggregate each gradient with parameters associated
+        # For instance zip(ABCD, xyza) => Ax, By, Cz, Da
+
+        self.vae_grads = grads
+        self.vae_var = var
+        self.vae_train_op = self.vae_trainer.apply_gradients(grads_and_var)
+
+        return grads
+
     def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
         # 1. Get the model parameters
@@ -274,7 +302,7 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
+        # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
 
         td_map = {
             self.train_model.X : obs,
@@ -295,7 +323,7 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
+        out = self.sess.run(self.stats_list + [self._train_op, self.vae_train_op], td_map)[:-2]
         self.sess.run([self._disc_train_op], td_map)
         self.training_i += 1
 

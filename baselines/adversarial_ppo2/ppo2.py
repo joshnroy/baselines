@@ -7,6 +7,8 @@ from baselines import logger
 from collections import deque
 from baselines.common import explained_variance, set_global_seeds
 from baselines.adversarial_ppo2.policies import build_policy
+import tensorflow as tf
+
 try:
     from mpi4py import MPI
 except ImportError:
