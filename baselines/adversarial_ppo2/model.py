@@ -92,9 +92,6 @@ class Model(object):
         else:
             self.disc_coeff = tf.placeholder(tf.float32, [])
 
-        self.gen_training = True
-        self.disc_training = True
-
         if MPI is not None and comm is None:
             comm = MPI.COMM_WORLD
 
@@ -134,9 +131,6 @@ class Model(object):
         self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 8, 8])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
-        # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
-
-        # self.argmaxed_predicted_logits = tf.argmax(predicted_logits, axis=1, output_type=tf.int32)
 
         discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=-1, output_type=tf.int32)), tf.float32))
 
@@ -147,8 +141,6 @@ class Model(object):
         entropy = tf.reduce_mean(train_model.pd.entropy())
 
         # CALCULATE THE LOSS
-        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss - discriminator_loss
-
         # Clip the value to reduce variability during Critic training
         # Get the predicted value
         vpred = train_model.vf
@@ -162,7 +154,6 @@ class Model(object):
 
         # Calculate ratio (pi current policy / pi old policy)
         ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
-        # ratio = 1.
 
         # Defining Loss = - J is equivalent to max J
         pg_losses = -ADV * ratio
@@ -171,7 +162,6 @@ class Model(object):
 
         # Final PG loss
         pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
-        # pg_loss = tf.reduce_mean(pg_losses)
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
@@ -179,29 +169,18 @@ class Model(object):
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
         pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
-        # pd_loss = -discriminator_loss
-        # pd_loss *= self.TRAIN_GEN
 
-        # p_grads = self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
-        # p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
-
-        # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
-        # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
 
         # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        # self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
-        # self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
         self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
-
-
 
         self.train_model = train_model
         self.act_model = act_model
@@ -236,22 +215,10 @@ class Model(object):
 
         if max_grad_norm is not None:
             grads, grad_norm = tf.clip_by_global_norm(ppo_grads + disc_grads, max_grad_norm)
-            # disc_grads, disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
-
-        # ppo_grads_and_var = list(zip(ppo_grads, ppo_var))
-        # disc_grads_and_var = list(zip(disc_grads, disc_var))
 
         grads_and_var = list(zip(grads, ppo_var + disc_var))
 
         self.all_train_op = self.trainer.apply_gradients(grads_and_var)
-
-        # self.ppo_grads = ppo_grads
-        # self.ppo_var = ppo_var
-        # self.ppo_all_train_op = self.trainer.apply_gradients(ppo_grads_and_var)
-
-        # self.disc_grads = disc_grads
-        # self.disc_var = disc_var
-        # self.disc_all_train_op = self.trainer.apply_gradients(disc_grads_and_var)
 
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
@@ -291,12 +258,7 @@ class Model(object):
             # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
-        # disc_grads, disc_var = zip(*disc_grads_and_var)
 
-        # if max_grad_norm is not None:
-        #     # Clip the gradients (normalize)
-        #     disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
-        # disc_grads_and_var = list(zip(disc_grads, disc_var))
         self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, train_disc=None, states=None):
@@ -306,9 +268,6 @@ class Model(object):
 
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-
-        # self.gen_training = not train_disc
-        # self.disc_training = train_disc
 
         for l in labels:
             if l >= self.num_levels:
