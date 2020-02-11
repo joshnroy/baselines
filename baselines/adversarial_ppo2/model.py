@@ -20,9 +20,6 @@ def build_discriminator(inputs, num_levels):
     Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
     """
 
-    # print("NUM_LEVELS", num_levels)
-    # sys.exit()
-
     layer_num = 0
 
     def get_layer_num_str():
@@ -54,8 +51,8 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(conv_layer(out, 16, kernel_size=1))
-    out = conv_layer(out, num_levels, kernel_size=1)
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
+    out = tf.layers.dense(out, num_levels)
 
     # depths = [32, 32]
     # for i in range(len(depths)):
@@ -131,7 +128,7 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None, 8, 8])
+        self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
 
         discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
         # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
@@ -179,14 +176,7 @@ class Model(object):
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
         pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
-        # pd_loss = -discriminator_loss
-        # pd_loss *= self.TRAIN_GEN
 
-        # p_grads = self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
-        # p_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in p_grads if g is not None])))
-
-        # pd_grads = self.update_policy_discriminator_params(comm, pd_loss, mpi_rank_weight, LR, max_grad_norm)
-        # pd_grads = tf.abs(tf.reduce_mean(tf.stack([tf.reduce_mean(g) for g in pd_grads if g is not None])))
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
@@ -315,7 +305,7 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
+        # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
 
         td_map = {
             self.train_model.X : obs,

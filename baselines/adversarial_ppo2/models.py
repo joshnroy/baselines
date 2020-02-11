@@ -3,6 +3,7 @@ import tensorflow as tf
 from baselines.a2c import utils
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch
 from baselines.common.mpi_running_mean_std import RunningMeanStd
+import sys
 
 mapping = {}
 
@@ -67,19 +68,19 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     for i, depth in enumerate(depths):
         out = conv_sequence(out, depth)
-        if i == 2:
-            attention = tf.nn.leaky_relu(conv_layer(out, depth))
-            attention = conv_layer(out, depth)
-            attention = tf.nn.sigmoid(attention)
-            out = tf.multiply(attention, out)
-            intermediate_features = out
+        # if i == 2:
+        #     attention = tf.nn.leaky_relu(conv_layer(out, depth))
+        #     attention = conv_layer(out, depth)
+        #     attention = tf.nn.sigmoid(attention)
+        #     out = tf.multiply(attention, out)
+        #     intermediate_features = out
 
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
     out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out)
 
-    return out, intermediate_features
+    return out, out
 
 
 @register("mlp")
