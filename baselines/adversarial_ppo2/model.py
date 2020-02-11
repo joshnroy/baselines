@@ -52,7 +52,7 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.tanh(inputs)
     out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
-    out = tf.layers.dense(out, num_levels)
+    out = tf.layers.dense(out, num_levels+1)
 
     # depths = [32, 32]
     # for i in range(len(depths)):
@@ -301,7 +301,7 @@ class Model(object):
         # self.disc_training = train_disc
 
         for l in labels:
-            if l >= self.num_levels:
+            if l > self.num_levels:
                 print(l, self.num_levels)
                 sys.exit()
 

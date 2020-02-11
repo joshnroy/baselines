@@ -18,7 +18,7 @@ class Runner(AbstractEnvRunner):
         self.gamma = gamma
         self.train = train
 
-    def run(self):
+    def run(self, model=None):
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
         mb_seeds = []
@@ -28,6 +28,8 @@ class Runner(AbstractEnvRunner):
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
+            if model is not None:
+                self.model = model
             actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones, train=self.train)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
