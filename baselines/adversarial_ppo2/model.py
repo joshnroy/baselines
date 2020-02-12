@@ -172,7 +172,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * tf.nn.log_softmax(predicted_logits, axis=-1)), axis=-1))
+        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels+1) * tf.nn.log_softmax(predicted_logits, axis=-1)), axis=-1))
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 

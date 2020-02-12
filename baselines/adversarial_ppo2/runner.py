@@ -8,6 +8,7 @@ from baselines.common.vec_env import (
     VecFrameStack,
     VecNormalize
 )
+import sys
 
 class Runner(AbstractEnvRunner):
     """
@@ -28,7 +29,7 @@ class Runner(AbstractEnvRunner):
 
     def run(self, model=None, eval=False, rand_seed=None):
         if eval:
-            eval_env = ProcgenEnv(num_envs=64, env_name='jumper', num_levels=0, start_level=1000, distribution_mode="easy", rand_seed=rand_seed)
+            eval_env = ProcgenEnv(num_envs=64, env_name='jumper', distribution_mode="easy", num_levels=1, start_level=rand_seed)
             eval_env = VecExtractDictObs(eval_env, "rgb")
 
             eval_env = VecMonitor(
@@ -66,8 +67,8 @@ class Runner(AbstractEnvRunner):
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
                 seeds.append(info['level_seed'])
-                if eval:
-                    print("seed", rand_seed, info['level_seed'])
+                # if eval:
+                #     print("seed", rand_seed, info['level_seed'])
             mb_rewards.append(rewards)
             mb_seeds.append(seeds)
         #batch of steps to batch of rollouts

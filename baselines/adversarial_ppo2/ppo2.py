@@ -164,7 +164,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
         if eval_env is not None:
             rand_seed = random.SystemRandom().randint(0, 2 ** 31 - 1)
-            print("####################################################", rand_seed)
             eval_model = copy(model)
             assert(model.trained == False)
             assert(eval_model.trained == False)
@@ -200,7 +199,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
 # EVALUATION MODEL (k-step transfer)
                 # # Randomize the indexes
-                # np.random.shuffle(inds_long)
+                np.random.shuffle(inds_long)
+                eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run(model=eval_model, eval=True, rand_seed=rand_seed) #pylint: disable=E0632
+                eval_labels = np.array([num_levels for _ in range(len(eval_obs))])
+                big_arr = (np.concatenate((eval_obs, obs)), np.concatenate((eval_returns, returns)), np.concatenate((eval_masks, masks)), np.concatenate((eval_actions, actions)), np.concatenate((eval_values, values)), np.concatenate((eval_neglogpacs, neglogpacs)), np.concatenate((eval_labels, labels)))
                 # # 0 to batch_size with batch_train_size step
                 for start in range(0, nbatch*2, nbatch_train):
                     end = start + nbatch_train
@@ -245,7 +247,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
         # Feedforward --> get losses --> update
         lossvals = np.mean(mblossvals, axis=0)
-        # eval_lossvals = np.mean(eval_mblossvals, axis=0)
+        eval_lossvals = np.mean(eval_mblossvals, axis=0)
         # End timer
         tnow = time.perf_counter()
         # Calculate the fps (frame per second)
@@ -273,8 +275,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
             for (lossval, lossname) in zip(lossvals, model.loss_names):
                 logger.logkv('loss/' + lossname, lossval)
 
-            # for (lossval, lossname) in zip(eval_lossvals, model.loss_names):
-            #     logger.logkv('eval_loss/' + lossname, lossval)
+            for (lossval, lossname) in zip(eval_lossvals, model.loss_names):
+                logger.logkv('eval_loss/' + lossname, lossval)
 
             logger.dumpkvs()
         if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and is_mpi_root:
