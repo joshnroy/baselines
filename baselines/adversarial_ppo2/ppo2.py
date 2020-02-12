@@ -8,6 +8,7 @@ from collections import deque
 from baselines.common import explained_variance, set_global_seeds
 from baselines.adversarial_ppo2.policies import build_policy
 from copy import copy
+import random
 try:
     from mpi4py import MPI
 except ImportError:
@@ -162,10 +163,12 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
         labels = calc_labels(labels_dict, seeds)
 
         if eval_env is not None:
+            rand_seed = random.SystemRandom().randint(0, 2 ** 31 - 1)
+            print("####################################################", rand_seed)
             eval_model = copy(model)
             assert(model.trained == False)
             assert(eval_model.trained == False)
-            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run(model=eval_model) #pylint: disable=E0632
+            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run(model=eval_model, eval=True, rand_seed=rand_seed) #pylint: disable=E0632
             eval_labels = np.array([num_levels for _ in range(len(eval_obs))])
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
@@ -177,12 +180,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
         # Here what we're going to do is for each minibatch calculate the loss and append it.
         mblossvals = []
         eval_mblossvals = []
+        big_arr = (np.concatenate((eval_obs, obs)), np.concatenate((eval_returns, returns)), np.concatenate((eval_masks, masks)), np.concatenate((eval_actions, actions)), np.concatenate((eval_values, values)), np.concatenate((eval_neglogpacs, neglogpacs)), np.concatenate((eval_labels, labels)))
+        train_disc = True
         if states is None: # nonrecurrent version
             # Index of each element of batch_size
             # Create the indices array
-            train_disc = True
             inds = np.arange(nbatch)
-            for _ in range(noptepochs):
+            inds_long = np.arange(nbatch*2)
+            for epoch_i in range(noptepochs):
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
@@ -194,18 +199,20 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                     mblossvals.append(e_lossvals)
 
 # EVALUATION MODEL (k-step transfer)
-                # Randomize the indexes
-                np.random.shuffle(inds)
-                # 0 to batch_size with batch_train_size step
-                print(obs, eval_obs)
-                sys.exit()
-                for start in range(0, nbatch, nbatch_train):
+                # # Randomize the indexes
+                # np.random.shuffle(inds_long)
+                # # 0 to batch_size with batch_train_size step
+                for start in range(0, nbatch*2, nbatch_train):
                     end = start + nbatch_train
-                    mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_labels))
-                    eval_e_lossvals = model.train(lrnow, cliprangenow, *slices, train_disc=train_disc)
+                    mbinds = inds_long[start:end]
+                    slices = (arr[mbinds] for arr in big_arr)
+                    slices_meme = [x for x in slices]
+                    eval_e_lossvals = model.train(lrnow, cliprangenow, *slices_meme, train_disc=train_disc)
                     eval_mblossvals.append(eval_e_lossvals)
                 eval_model.trained = True
+
+                # if epoch_i % 3 == 0:
+                train_disc = not train_disc
 
 
         else: # recurrent version
@@ -226,7 +233,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
         if eval_env is not None:
             assert(eval_model.trained == True)
-            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run(model=eval_model) #pylint: disable=E0632
+            eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run(model=eval_model, eval=True, rand_seed=rand_seed) #pylint: disable=E0632
             eval_labels = np.array([num_levels for _ in range(len(eval_obs))])
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
@@ -238,7 +245,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
         # Feedforward --> get losses --> update
         lossvals = np.mean(mblossvals, axis=0)
-        eval_lossvals = np.mean(eval_mblossvals, axis=0)
+        # eval_lossvals = np.mean(eval_mblossvals, axis=0)
         # End timer
         tnow = time.perf_counter()
         # Calculate the fps (frame per second)
@@ -266,8 +273,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
             for (lossval, lossname) in zip(lossvals, model.loss_names):
                 logger.logkv('loss/' + lossname, lossval)
 
-            for (lossval, lossname) in zip(eval_lossvals, model.loss_names):
-                logger.logkv('eval_loss/' + lossname, lossval)
+            # for (lossval, lossname) in zip(eval_lossvals, model.loss_names):
+            #     logger.logkv('eval_loss/' + lossname, lossval)
 
             logger.dumpkvs()
         if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and is_mpi_root:

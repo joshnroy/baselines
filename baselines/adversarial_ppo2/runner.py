@@ -1,5 +1,13 @@
 import numpy as np
 from baselines.common.runners import AbstractEnvRunner
+import random
+from procgen import ProcgenEnv
+from baselines.common.vec_env import (
+    VecExtractDictObs,
+    VecMonitor,
+    VecFrameStack,
+    VecNormalize
+)
 
 class Runner(AbstractEnvRunner):
     """
@@ -18,7 +26,17 @@ class Runner(AbstractEnvRunner):
         self.gamma = gamma
         self.train = train
 
-    def run(self, model=None):
+    def run(self, model=None, eval=False, rand_seed=None):
+        if eval:
+            eval_env = ProcgenEnv(num_envs=64, env_name='jumper', num_levels=0, start_level=1000, distribution_mode="easy", rand_seed=rand_seed)
+            eval_env = VecExtractDictObs(eval_env, "rgb")
+
+            eval_env = VecMonitor(
+                venv=eval_env, filename=None, keep_buf=100,
+            )
+
+            eval_env = VecNormalize(venv=eval_env, ob=False)
+            eval_env.reset()
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
         mb_seeds = []
@@ -39,12 +57,17 @@ class Runner(AbstractEnvRunner):
 
             # Take actions in env and look the results
             # Infos contains a ton of useful informations
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            if eval:
+                self.obs[:], rewards, self.dones, infos = eval_env.step(actions)
+            else:
+                self.obs[:], rewards, self.dones, infos = self.env.step(actions)
             seeds = []
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
                 seeds.append(info['level_seed'])
+                if eval:
+                    print("seed", rand_seed, info['level_seed'])
             mb_rewards.append(rewards)
             mb_seeds.append(seeds)
         #batch of steps to batch of rollouts

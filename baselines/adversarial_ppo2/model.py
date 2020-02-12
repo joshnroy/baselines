@@ -51,17 +51,13 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
-    out = tf.layers.dense(out, num_levels+1)
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
+    # out = tf.layers.dense(out, num_levels+1)
 
-    # depths = [32, 32]
-    # for i in range(len(depths)):
-    #     depth = depths[i]
-    #     out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
-
-    # out = tf.layers.flatten(out)
-    # out = tf.nn.leaky_relu(out)
-    # out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(conv_layer(out, 128, kernel_size=3))
+    out = tf.nn.leaky_relu(conv_layer(out, 128, kernel_size=3))
+    out = tf.nn.leaky_relu(conv_layer(out, num_levels+1, kernel_size=3))
+    out = tf.reduce_mean(out, axis=(1, 2))
 
     return out
 
@@ -112,6 +108,7 @@ class Model(object):
             predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
             self.predicted_labels = tf.nn.softmax(predicted_logits)
+            self.pred = tf.argmax(predicted_logits, axis=-1)
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -175,18 +172,16 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
+        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * tf.nn.log_softmax(predicted_logits, axis=-1)), axis=-1))
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
+        self.update_policy_params(comm, loss + (self.TRAIN_GEN * self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
 
         # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        # self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
-        # self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'TRAIN_GEN']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), self.TRAIN_GEN]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
@@ -297,9 +292,6 @@ class Model(object):
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
-        # self.gen_training = not train_disc
-        # self.disc_training = train_disc
-
         for l in labels:
             if l > self.num_levels:
                 print(l, self.num_levels)
@@ -326,11 +318,15 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
+        if not train_disc:
+            td_map[self.TRAIN_GEN] = 1.
 
-        # print(self.training_i)
+
         out = self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
-        for _ in range(1):
+
+        if train_disc:
             self.sess.run([self._disc_train_op], td_map)
+
         self.training_i += 1
 
         # out = self.sess.run(self.stats_list + [self.all_train_op], td_map)[:-1]
