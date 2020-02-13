@@ -51,17 +51,12 @@ def build_discriminator(inputs, num_levels):
         return out
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
-    out = tf.layers.dense(out, num_levels)
-
-    # depths = [32, 32]
-    # for i in range(len(depths)):
-    #     depth = depths[i]
-    #     out = conv_sequence(out, depth) + tf.nn.tanh(inputs[i+1])
-
-    # out = tf.layers.flatten(out)
-    # out = tf.nn.leaky_relu(out)
-    # out = tf.layers.dense(out, num_levels, name='layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(conv_layer(out, 128))
+    out = tf.nn.leaky_relu(conv_layer(out, 2))
+    out = tf.reduce_mean(out, axis=(1, 2))
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
+    # out = tf.layers.dense(out, num_levels+1)
+    # out = tf.layers.dense(out, 2)
 
     return out
 
@@ -175,11 +170,14 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
+        # pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels+1) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
+        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / 2. * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_policy_params(comm, loss + (self.disc_coeff * pd_loss), mpi_rank_weight, LR, max_grad_norm)
+        self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
+
+        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
         # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -209,39 +207,24 @@ class Model(object):
 
         self.training_i = 0
 
-    def update_all_params(self, comm, ppo_loss, disc_loss, mpi_rank_weight, LR, max_grad_norm):
-        ppo_params = tf.trainable_variables('ppo2_model')
-        disc_params = tf.trainable_variables('discriminator_model')
-
+    def update_generator_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
+        params = tf.trainable_variables('ppo2_model')
         if comm is not None and comm.Get_size() > 1:
             self.trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
             self.trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-
-        ppo_var_and_grads = self.trainer.compute_gradients(ppo_loss, ppo_params)
-        ppo_grads, ppo_var = zip(*ppo_var_and_grads)
-
-        disc_var_and_grads = self.trainer.compute_gradients(disc_loss, disc_params)
-        disc_grads, disc_var = zip(*disc_var_and_grads)
-
+        grads_and_var = self.trainer.compute_gradients(loss, params)
+        grads, var = zip(*grads_and_var)
         if max_grad_norm is not None:
-            grads, grad_norm = tf.clip_by_global_norm(ppo_grads + disc_grads, max_grad_norm)
-            # disc_grads, disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
+            # Clip the gradients (normalize)
+            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
+        grads_and_var = list(zip(grads, var))
 
-        # ppo_grads_and_var = list(zip(ppo_grads, ppo_var))
-        # disc_grads_and_var = list(zip(disc_grads, disc_var))
+        self.generator_grads = grads
+        self.generator_var = var
+        self.generator_train_op = self.trainer.apply_gradients(grads_and_var)
 
-        grads_and_var = list(zip(grads, ppo_var + disc_var))
-
-        self.all_train_op = self.trainer.apply_gradients(grads_and_var)
-
-        # self.ppo_grads = ppo_grads
-        # self.ppo_var = ppo_var
-        # self.ppo_all_train_op = self.trainer.apply_gradients(ppo_grads_and_var)
-
-        # self.disc_grads = disc_grads
-        # self.disc_var = disc_var
-        # self.disc_all_train_op = self.trainer.apply_gradients(disc_grads_and_var)
+        return grads
 
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
@@ -265,7 +248,7 @@ class Model(object):
 
         self.grads = grads
         self.var = var
-        self._train_op = self.trainer.apply_gradients(grads_and_var)
+        self.policy_train_op = self.trainer.apply_gradients(grads_and_var)
 
         return grads
 
@@ -287,9 +270,9 @@ class Model(object):
         #     # Clip the gradients (normalize)
         #     disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
         # disc_grads_and_var = list(zip(disc_grads, disc_var))
-        self._disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
+        self.disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
 
-    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, train_disc=None, states=None):
+    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, eval_obs, eval_labels, train_disc=None, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -297,17 +280,15 @@ class Model(object):
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
-        # self.gen_training = not train_disc
-        # self.disc_training = train_disc
-
         for l in labels:
             if l >= self.num_levels:
                 print(l, self.num_levels)
                 sys.exit()
 
         # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
+        labels = np.zeros_like(labels, dtype=np.int64)
 
-        td_map = {
+        td_map_policy = {
             self.train_model.X : obs,
             self.A : actions,
             self.ADV : advs,
@@ -327,14 +308,69 @@ class Model(object):
             td_map[self.train_model.M] = masks
 
 
-        # print(self.training_i)
-        out = self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
-        for _ in range(1):
-            self.sess.run([self._disc_train_op], td_map)
+        out = self.sess.run(self.stats_list + [self.policy_train_op], td_map_policy)[:-1]
+
+        if train_disc:
+            td_map_gen = {
+                self.train_model.X : obs,
+                self.A : actions,
+                self.ADV : advs,
+                self.R : returns,
+                self.LR : lr,
+                self.CLIPRANGE : cliprange,
+                self.OLDNEGLOGPAC : neglogpacs,
+                self.OLDVPRED : values,
+                self.LABELS : labels,
+                self.TRAIN_GEN: 0.,
+            }
+            real_prediction = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen)[0]
+            td_map_disc = {
+                self.train_model.X : eval_obs,
+                self.A : actions,
+                self.ADV : advs,
+                self.R : returns,
+                self.LR : lr,
+                self.CLIPRANGE : cliprange,
+                self.OLDNEGLOGPAC : neglogpacs,
+                self.OLDVPRED : values,
+                self.LABELS : eval_labels,
+                self.TRAIN_GEN: 0.,
+            }
+            fake_prediction = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_disc)[0]
+        else:
+            td_map_gen = {
+                self.train_model.X : obs,
+                self.A : actions,
+                self.ADV : advs,
+                self.R : returns,
+                self.LR : lr,
+                self.CLIPRANGE : cliprange,
+                self.OLDNEGLOGPAC : neglogpacs,
+                self.OLDVPRED : values,
+                self.LABELS : labels,
+                self.TRAIN_GEN: 0.,
+            }
+            real_prediction = self.sess.run([self.stats_list[6], self.disc_train_op], td_map_gen)[0]
+            td_map_disc = {
+                self.train_model.X : eval_obs,
+                self.A : actions,
+                self.ADV : advs,
+                self.R : returns,
+                self.LR : lr,
+                self.CLIPRANGE : cliprange,
+                self.OLDNEGLOGPAC : neglogpacs,
+                self.OLDVPRED : values,
+                self.LABELS : eval_labels,
+                self.TRAIN_GEN: 0.,
+            }
+            fake_prediction = self.sess.run([self.stats_list[6], self.disc_train_op], td_map_disc)[0]
+
+        # print(labels)
+        # print(eval_labels)
+        # print(real_prediction, fake_prediction)
+        out[6] = 0.5 * (real_prediction + fake_prediction)
+
         self.training_i += 1
-
-        # out = self.sess.run(self.stats_list + [self.all_train_op], td_map)[:-1]
-
 
         return out
 
