@@ -1,5 +1,6 @@
 import numpy as np
 from baselines.common.runners import AbstractEnvRunner
+import matplotlib.pyplot as plt
 
 class Runner(AbstractEnvRunner):
     """
@@ -17,6 +18,7 @@ class Runner(AbstractEnvRunner):
         # Discount rate
         self.gamma = gamma
         self.train = train
+        self.file_i = 0
 
     def run(self):
         # Here, we init the lists that will contain the mb of experiences
@@ -43,6 +45,10 @@ class Runner(AbstractEnvRunner):
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
                 seeds.append(info['level_seed'])
+                # if self.file_i % 102 == 0 and not self.train:
+                #     plt.imshow(self.obs[0])
+                #     plt.savefig("file" + str(self.file_i) + ".png")
+                # self.file_i += 1
             mb_rewards.append(rewards)
             mb_seeds.append(seeds)
         #batch of steps to batch of rollouts

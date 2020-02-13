@@ -75,13 +75,13 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         #     out = tf.multiply(attention, out)
         #     intermediate_features = out
 
-    temp = out
+    # temp = out
     out = tf.layers.flatten(out)
     out = tf.nn.leaky_relu(out)
     out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out)
 
-    return out, temp
+    return out, out
 
 
 @register("mlp")
