@@ -336,7 +336,7 @@ class Model(object):
         # print(labels)
         # print(eval_labels)
         # print(real_prediction, fake_prediction)
-        print(accuracy)
+        # print(accuracy)
         out[6] = accuracy
 
         self.training_i += 1
