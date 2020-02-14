@@ -161,7 +161,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
         if eval_env is not None:
             eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
             # eval_labels = np.array([num_levels+1 for _ in range(len(eval_obs))])
-            eval_labels = np.array([0 for _ in range(len(eval_obs))])
+            eval_labels = np.array([1 for _ in range(len(eval_obs))])
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
 

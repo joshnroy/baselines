@@ -58,7 +58,7 @@ def build_discriminator(inputs, num_levels):
         out = tf.reduce_mean(out, axis=(1, 2))
     else:
         out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
-        out = tf.layers.dense(out, 2)
+        out = tf.layers.dense(out, 1)
 
     return out
 
@@ -127,12 +127,7 @@ class Model(object):
         # Seed labels for the discriminator
         self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
 
-        discriminator_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.LABELS, logits=predicted_logits))
-        # discriminator_loss_clipped = tf.clip_by_value(discriminator_loss, 0., 6.)
-
-        # self.argmaxed_predicted_logits = tf.argmax(predicted_logits, axis=1, output_type=tf.int32)
-
-        discriminator_accuracy = tf.reduce_mean(tf.cast(tf.equal(self.LABELS, tf.argmax(predicted_logits, axis=-1, output_type=tf.int32)), tf.float32))
+        discriminator_loss = tf.reduce_mean(self.LABELS * predicted_logits)
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -172,9 +167,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        # pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / float(num_levels+1) * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
-        pd_loss = tf.reduce_mean(-1. * tf.reduce_sum((1. / 2. * (tf.nn.log_softmax(predicted_logits, axis=-1))), axis=-1))
-        # pd_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.abs(self.LABELS - 1), logits=predicted_logits))
+        pd_loss = -1 * tf.reduce_mean((self.LABELS + 1)/2 * predicted_logits)
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -182,12 +175,8 @@ class Model(object):
 
         self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        # self.update_all_params(comm, loss + (self.disc_coeff * pd_loss), discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
-
-        # self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max', 'p_grads']
-        # self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels), p_grads]
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'discriminator_accuracy', 'pd_loss', 'softmax_min', 'softmax_max']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, discriminator_accuracy, pd_loss, tf.reduce_min(self.predicted_labels), tf.reduce_max(self.predicted_labels)]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits)]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
@@ -290,7 +279,7 @@ class Model(object):
                 sys.exit()
 
         # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
-        labels = np.ones_like(labels, dtype=np.int64)
+        labels = np.zeros_like(labels, dtype=np.int64) - 1
 
         td_map_policy = {
             self.train_model.X : obs,
@@ -333,10 +322,6 @@ class Model(object):
             else:
                 accuracy = self.sess.run([self.stats_list[6], self.disc_train_op], td_map_gen_disc)[0]
 
-        # print(labels)
-        # print(eval_labels)
-        # print(real_prediction, fake_prediction)
-        # print(accuracy)
         out[6] = accuracy
 
         self.training_i += 1
