@@ -321,6 +321,8 @@ class Model(object):
         }
         disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
         out[5] = disc_loss
+        out[9] = real_labels_loss
+        out[10] = fake_labels_loss
         print("disc loss", disc_loss, real_labels_loss, fake_labels_loss)
         if self.training_i % 5 == 0:
             pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
