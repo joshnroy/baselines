@@ -125,9 +125,9 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
 
         # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.int32, [None])
+        self.LABELS = LABELS = tf.placeholder(tf.float32, [None])
 
-        discriminator_loss = tf.reduce_mean(self.LABELS * predicted_logits)
+        discriminator_loss = -1. * tf.reduce_mean((-1 * (self.LABELS-1)) / 2) + tf.reduce_mean((self.LABELS + 1)/2 * predicted_logits)
 
         neglogpac = train_model.pd.neglogp(A)
 
@@ -198,6 +198,8 @@ class Model(object):
             sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
 
         self.training_i = 0
+
+        self.clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('discriminator_model')]
 
     def update_generator_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         params = tf.trainable_variables('ppo2_model')
@@ -290,7 +292,7 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.LABELS : labels,
+            self.LABELS : labels.astype(np.float32),
             self.TRAIN_GEN: 0.,
         }
         if isinstance(self.disc_coeff, tf.Tensor):
@@ -306,23 +308,23 @@ class Model(object):
         split_num = len(obs) // 2
         td_map_gen_disc = {
             self.train_model.X : np.concatenate((obs[split_num:], eval_obs[:split_num])),
-            self.A : actions,
-            self.ADV : advs,
-            self.R : returns,
+            self.A : np.zeros_like(actions),
+            self.ADV : np.zeros_like(advs),
+            self.R : np.zeros_like(returns),
             self.LR : lr,
             self.CLIPRANGE : cliprange,
-            self.OLDNEGLOGPAC : neglogpacs,
-            self.OLDVPRED : values,
-            self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])),
+            self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
+            self.OLDVPRED : np.zeros_like(values),
+            self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
             self.TRAIN_GEN: 0.,
         }
-        for _ in range(1):
-            if train_disc:
-                accuracy = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
-            else:
-                accuracy = self.sess.run([self.stats_list[6], self.disc_train_op], td_map_gen_disc)[0]
-
-        out[6] = accuracy
+        disc_loss = self.sess.run([self.stats_list[5], self.disc_train_op], td_map_gen_disc)[0]
+        out[5] = disc_loss
+        print("disc loss", disc_loss)
+        if self.training_i % 5 == 0:
+            pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
+            out[6] = pd_loss
+            print("pd_loss", pd_loss)
 
         self.training_i += 1
 
