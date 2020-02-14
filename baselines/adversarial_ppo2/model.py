@@ -57,7 +57,8 @@ def build_discriminator(inputs, num_levels):
         out = tf.nn.leaky_relu(conv_layer(out, 2))
         out = tf.reduce_mean(out, axis=(1, 2))
     else:
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 128))
+        out = tf.nn.leaky_relu(tf.layers.dense(out, 256))
+        out = tf.nn.leaky_relu(tf.layers.dense(out, 256))
         out = tf.layers.dense(out, 1)
 
     return out
@@ -108,8 +109,6 @@ class Model(object):
 
             predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
-            self.predicted_labels = tf.nn.softmax(predicted_logits)
-
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
         self.ADV = ADV = tf.placeholder(tf.float32, [None])
@@ -127,8 +126,12 @@ class Model(object):
         # Seed labels for the discriminator
         self.LABELS = LABELS = tf.placeholder(tf.float32, [None])
 
-        discriminator_loss = -1. * tf.reduce_mean((-1 * (self.LABELS-1)) / 2) + tf.reduce_mean((self.LABELS + 1)/2 * predicted_logits)
-
+        # print(predicted_logits.shape)
+        # print(self.LABELS.shape)
+        # sys.exit()
+        self.real_labels_loss = tf.reduce_mean(((1 - self.LABELS)) * predicted_logits[:, 0])
+        self.fake_labels_loss = tf.reduce_mean((self.LABELS) * predicted_logits[:, 0])
+        discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -167,7 +170,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = -1 * tf.reduce_mean((self.LABELS + 1)/2 * predicted_logits)
+        pd_loss = -1 * self.fake_labels_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -175,13 +178,11 @@ class Model(object):
 
         self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits)]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
-
-
 
         self.train_model = train_model
         self.act_model = act_model
@@ -281,7 +282,7 @@ class Model(object):
                 sys.exit()
 
         # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
-        labels = np.zeros_like(labels, dtype=np.int64) - 1
+        labels = np.zeros_like(labels, dtype=np.int64)
 
         td_map_policy = {
             self.train_model.X : obs,
@@ -318,9 +319,9 @@ class Model(object):
             self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
             self.TRAIN_GEN: 0.,
         }
-        disc_loss = self.sess.run([self.stats_list[5], self.disc_train_op], td_map_gen_disc)[0]
+        disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
         out[5] = disc_loss
-        print("disc loss", disc_loss)
+        print("disc loss", disc_loss, real_labels_loss, fake_labels_loss)
         if self.training_i % 5 == 0:
             pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
             out[6] = pd_loss
