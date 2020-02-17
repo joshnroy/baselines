@@ -59,7 +59,7 @@ def build_discriminator(inputs, num_levels):
     else:
         out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
         out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.layers.dense(out, 1)
+        out = tf.layers.dense(out, 1, use_bias=False)
 
     return out
 
