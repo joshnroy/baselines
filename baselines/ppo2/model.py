@@ -3,6 +3,7 @@ import functools
 
 from baselines.common.tf_util import get_session, save_variables, load_variables
 from baselines.common.tf_util import initialize
+import sys
 
 try:
     from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
@@ -93,6 +94,12 @@ class Model(object):
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
         params = tf.trainable_variables('ppo2_model')
+        for p in params:
+            print(p)
+        params = [params[i] for i in range(len(params)-6, len(params))]
+        for p in params:
+            print(p)
+        # sys.exit()
         # 2. Build our trainer
         if comm is not None and comm.Get_size() > 1:
             self.trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
