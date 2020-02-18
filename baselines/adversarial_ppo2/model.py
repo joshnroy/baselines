@@ -176,7 +176,7 @@ class Model(object):
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
+        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 10.)
 
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss']
         self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss]
