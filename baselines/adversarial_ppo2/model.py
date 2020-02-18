@@ -14,12 +14,7 @@ try:
 except ImportError:
     MPI = None
 
-def build_discriminator(inputs, num_levels):
-    """
-    Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
-    Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
-    """
-
+def build_discriminator(features, num_levels):
     layer_num = 0
 
     def get_layer_num_str():
@@ -50,16 +45,17 @@ def build_discriminator(inputs, num_levels):
         out = residual_block(out)
         return out
 
-    out = tf.nn.tanh(inputs)
+    out = features[0]
 
-    if len(out.shape) > 3:
-        out = tf.nn.leaky_relu(conv_layer(out, 128))
-        out = tf.nn.leaky_relu(conv_layer(out, 2))
-        out = tf.reduce_mean(out, axis=(1, 2))
-    else:
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.layers.dense(out, 1, use_bias=False)
+    for i, depth in enumerate([32, 32]):
+        out = conv_sequence(out, depth)
+        out += features[i+1]
+
+    out = tf.layers.flatten(out)
+    out = tf.nn.leaky_relu(out)
+    out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out)
+    out = tf.layers.dense(out + features[3], 1)
 
     return out
 
@@ -170,7 +166,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = self.real_labels_loss - self.fake_labels_loss
+        pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
