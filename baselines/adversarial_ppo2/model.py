@@ -170,7 +170,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = self.real_labels_loss - self.fake_labels_loss
+        pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
