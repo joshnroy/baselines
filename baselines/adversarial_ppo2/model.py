@@ -176,7 +176,8 @@ class Model(object):
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 10.)
+        # self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 10.)
+        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss']
         self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss]
@@ -306,28 +307,27 @@ class Model(object):
 
         out = self.sess.run(self.stats_list + [self.policy_train_op], td_map_policy)[:-1]
 
-        split_num = len(obs) // 2
-        td_map_gen_disc = {
-            self.train_model.X : np.concatenate((obs[split_num:], eval_obs[:split_num])),
-            # self.A : np.zeros_like(actions),
-            # self.ADV : np.zeros_like(advs),
-            # self.R : np.zeros_like(returns),
-            self.LR : lr,
-            # self.CLIPRANGE : cliprange,
-            # self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
-            # self.OLDVPRED : np.zeros_like(values),
-            self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
-            # self.TRAIN_GEN: 0.,
-        }
-        disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
-        out[5] = disc_loss
-        out[9] = real_labels_loss
-        out[10] = fake_labels_loss
-        print("disc loss", disc_loss, real_labels_loss, fake_labels_loss)
-        if self.training_i % 5 == 0:
-            pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
-            out[6] = pd_loss
-            print("pd_loss", pd_loss)
+        if self.disc_coeff > 0.:
+            split_num = len(obs) // 2
+            td_map_gen_disc = {
+                self.train_model.X : np.concatenate((obs[split_num:], eval_obs[:split_num])),
+                # self.A : np.zeros_like(actions),
+                # self.ADV : np.zeros_like(advs),
+                # self.R : np.zeros_like(returns),
+                self.LR : lr,
+                # self.CLIPRANGE : cliprange,
+                # self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
+                # self.OLDVPRED : np.zeros_like(values),
+                self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
+                # self.TRAIN_GEN: 0.,
+            }
+            disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
+            out[5] = disc_loss
+            out[9] = real_labels_loss
+            out[10] = fake_labels_loss
+            if self.training_i % 5 == 0:
+                pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
+                out[6] = pd_loss
 
         self.training_i += 1
 
