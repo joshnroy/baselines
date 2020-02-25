@@ -14,12 +14,7 @@ try:
 except ImportError:
     MPI = None
 
-def build_discriminator(inputs, num_levels):
-    """
-    Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
-    Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
-    """
-
+def build_discriminator(features, num_levels):
     layer_num = 0
 
     def get_layer_num_str():
@@ -50,16 +45,17 @@ def build_discriminator(inputs, num_levels):
         out = residual_block(out)
         return out
 
-    out = tf.nn.tanh(inputs)
+    out = features[0]
 
-    if len(out.shape) > 3:
-        out = tf.nn.leaky_relu(conv_layer(out, 128))
-        out = tf.nn.leaky_relu(conv_layer(out, 2))
-        out = tf.reduce_mean(out, axis=(1, 2))
-    else:
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 256))
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 256))
-        out = tf.layers.dense(out, 1)
+    for i, depth in enumerate([32, 32]):
+        out = conv_sequence(out, depth)
+        out += features[i+1]
+
+    out = tf.layers.flatten(out)
+    out = tf.nn.leaky_relu(out)
+    out = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out)
+    out = tf.layers.dense(out + features[3], 1)
 
     return out
 
@@ -170,7 +166,7 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = -1 * self.fake_labels_loss
+        pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -207,7 +203,7 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.generator_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR)
+            self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
             # self.generator_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         grads_and_var = self.generator_trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
@@ -256,7 +252,7 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR)
+            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
             # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
@@ -309,15 +305,15 @@ class Model(object):
         split_num = len(obs) // 2
         td_map_gen_disc = {
             self.train_model.X : np.concatenate((obs[split_num:], eval_obs[:split_num])),
-            self.A : np.zeros_like(actions),
-            self.ADV : np.zeros_like(advs),
-            self.R : np.zeros_like(returns),
+            # self.A : np.zeros_like(actions),
+            # self.ADV : np.zeros_like(advs),
+            # self.R : np.zeros_like(returns),
             self.LR : lr,
-            self.CLIPRANGE : cliprange,
-            self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
-            self.OLDVPRED : np.zeros_like(values),
+            # self.CLIPRANGE : cliprange,
+            # self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
+            # self.OLDVPRED : np.zeros_like(values),
             self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
-            self.TRAIN_GEN: 0.,
+            # self.TRAIN_GEN: 0.,
         }
         disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
         out[5] = disc_loss
