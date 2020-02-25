@@ -126,9 +126,6 @@ class Model(object):
         # Seed labels for the discriminator
         self.LABELS = LABELS = tf.placeholder(tf.float32, [None])
 
-        # print(predicted_logits.shape)
-        # print(self.LABELS.shape)
-        # sys.exit()
         self.real_labels_loss = tf.reduce_mean(((1 - self.LABELS)) * predicted_logits[:, 0])
         self.fake_labels_loss = tf.reduce_mean((self.LABELS) * predicted_logits[:, 0])
         discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
@@ -283,7 +280,7 @@ class Model(object):
                 sys.exit()
 
         # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
-        labels = np.zeros_like(labels, dtype=np.int64)
+        # labels = np.zeros_like(labels, dtype=np.int64)
 
         td_map_policy = {
             self.train_model.X : obs,
@@ -304,30 +301,11 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.disc_train_op], td_map_policy)[:-1]
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op], td_map_policy)[:-1]
-
-        if self.disc_coeff > 0.:
-            split_num = len(obs) // 2
-            td_map_gen_disc = {
-                self.train_model.X : np.concatenate((obs[split_num:], eval_obs[:split_num])),
-                # self.A : np.zeros_like(actions),
-                # self.ADV : np.zeros_like(advs),
-                # self.R : np.zeros_like(returns),
-                self.LR : lr,
-                # self.CLIPRANGE : cliprange,
-                # self.OLDNEGLOGPAC : np.zeros_like(neglogpacs),
-                # self.OLDVPRED : np.zeros_like(values),
-                self.LABELS : np.concatenate((labels[split_num:], eval_labels[:split_num])).astype(np.float32),
-                # self.TRAIN_GEN: 0.,
-            }
-            disc_loss, real_labels_loss, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[9], self.stats_list[10], self.disc_train_op, self.clip_D], td_map_gen_disc)[:3]
-            out[5] = disc_loss
-            out[9] = real_labels_loss
-            out[10] = fake_labels_loss
-            if self.training_i % 5 == 0:
-                pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
-                out[6] = pd_loss
+        if self.training_i % 5 == 0:
+            pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
+            out[6] = pd_loss
 
         self.training_i += 1
 
