@@ -301,11 +301,11 @@ class Model(object):
             td_map[self.train_model.S] = states
             td_map[self.train_model.M] = masks
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.disc_train_op], td_map_policy)[:-1]
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.disc_train_op], td_map_policy)[:-2]
 
-        if self.training_i % 5 == 0:
-            pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
-            out[6] = pd_loss
+        # if self.training_i % 5 == 0:
+        #     pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
+        #     out[6] = pd_loss
 
         self.training_i += 1
 
