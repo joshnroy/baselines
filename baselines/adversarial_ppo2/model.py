@@ -207,6 +207,7 @@ class Model(object):
         else:
             self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
             # self.generator_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+        # grads_and_var = self.generator_trainer.compute_gradients(loss, params)
         grads_and_var = self.generator_trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
         if max_grad_norm is not None:
@@ -264,7 +265,7 @@ class Model(object):
             # Clip the gradients (normalize)
             disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
         disc_grads_and_var = list(zip(disc_grads, disc_var))
-        self.disc_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
+        self.discriminator_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, eval_obs, eval_labels, train_disc=None, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
@@ -291,21 +292,37 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.LABELS : labels.astype(np.float32),
+            self.LABELS : np.zeros_like(labels, dtype=np.float32),
             self.TRAIN_GEN: 0.,
         }
         if isinstance(self.disc_coeff, tf.Tensor):
             td_map[self.disc_coeff] = (self.training_i / 10000.)
 
-        if states is not None:
-            td_map[self.train_model.S] = states
-            td_map[self.train_model.M] = masks
+        td_map_eval = {
+            self.train_model.X : eval_obs,
+            self.A : actions,
+            self.ADV : advs,
+            self.R : returns,
+            self.LR : lr,
+            self.CLIPRANGE : cliprange,
+            self.OLDNEGLOGPAC : neglogpacs,
+            self.OLDVPRED : values,
+            self.LABELS : np.ones_like(eval_labels, dtype=np.float32),
+            self.TRAIN_GEN: 0.,
+        }
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.disc_train_op], td_map_policy)[:-2]
+        out = self.sess.run(self.stats_list + [self.policy_train_op], td_map_policy)[:-1]
 
-        # if self.training_i % 5 == 0:
-        #     pd_loss = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_gen_disc)[0]
-        #     out[6] = pd_loss
+        out_real, pd_loss_real, real_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[6], self.stats_list[9], self.discriminator_train_op, self.clip_D], td_map_policy)[0:3]
+        out_fake, pd_loss_fake, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[6], self.stats_list[10], self.discriminator_train_op, self.clip_D], td_map_eval)[0:3]
+        out[5] = (out_real + out_fake) / 2.
+        out[9] = real_labels_loss
+        out[10] = real_labels_loss
+        out[6] = (pd_loss_real + pd_loss_fake) / 2.
+        if self.training_i % 5 == 0:
+            out_real = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_policy)[0]
+            out_fake = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_eval)[0]
+            out[6] = (out_real + out_fake) / 2.
 
         self.training_i += 1
 
