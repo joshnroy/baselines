@@ -167,13 +167,14 @@ class Model(object):
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
+        # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
+        pd_loss = -self.fake_labels_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
-        # self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 10.)
+        # self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 100.)
         self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss']
@@ -205,7 +206,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.generator_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
+            # self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
+            self.generator_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
             # self.generator_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # grads_and_var = self.generator_trainer.compute_gradients(loss, params)
         grads_and_var = self.generator_trainer.compute_gradients(loss, params)
@@ -229,7 +231,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.policy_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.policy_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # self.policy_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            self.policy_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
         # 3. Calculate the gradients
         grads_and_var = self.policy_trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
@@ -255,7 +258,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
+            # self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
+            self.disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
             # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
