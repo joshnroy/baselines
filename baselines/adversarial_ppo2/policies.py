@@ -16,7 +16,7 @@ class PolicyWithValue(object):
     Encapsulates fields and methods for RL policy and value function estimation with shared parameters
     """
 
-    def __init__(self, env, observations, latent, estimate_q=False, vf_latent=None, sess=None, intermediate_feature=None, **tensors):
+    def __init__(self, env, train_observations, test_observations, latent, estimate_q=False, vf_latent=None, sess=None, train_intermediate_feature=None, test_intermediate_feature=None, **tensors):
         """
         Parameters:
         ----------
@@ -34,7 +34,8 @@ class PolicyWithValue(object):
 
         """
 
-        self.X = observations
+        self.train_X = self.X = train_observations
+        self.test_X = test_observations
         self.state = tf.constant([])
         self.initial_state = None
         self.__dict__.update(tensors)
@@ -43,8 +44,8 @@ class PolicyWithValue(object):
 
         vf_latent = tf.layers.flatten(vf_latent)
         latent = tf.layers.flatten(latent)
-        self.intermediate_feature = intermediate_feature
-        # self.intermediate_feature = tf.nn.tanh(latent) if intermediate_feature is None else tf.nn.tanh(intermediate_feature)
+        self.train_intermediate_feature = train_intermediate_feature
+        self.test_intermediate_feature = test_intermediate_feature
 
         # Based on the action space, will select what probability distribution type
         self.pdtype = make_pdtype(env.action_space)
@@ -126,23 +127,28 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
         network_type = policy_network
         policy_network = get_network_builder(network_type)(**policy_kwargs)
 
-    def policy_fn(nbatch=None, nsteps=None, sess=None, observ_placeholder=None):
+    def policy_fn(nbatch=None, nsteps=None, sess=None, train_observ_placeholder=None, test_observ_placeholder=None):
         ob_space = env.observation_space
 
-        X = observ_placeholder if observ_placeholder is not None else observation_placeholder(ob_space, batch_size=nbatch)
+        train_X = train_observ_placeholder if train_observ_placeholder is not None else observation_placeholder(ob_space, batch_size=nbatch)
+        test_X = test_observ_placeholder if test_observ_placeholder is not None else observation_placeholder(ob_space, batch_size=nbatch)
 
         extra_tensors = {}
 
-        if normalize_observations and X.dtype == tf.float32:
-            encoded_x, rms = _normalize_clip_observation(X)
+        if normalize_observations and train_X.dtype == tf.float32:
+            train_encoded_x, rms = _normalize_clip_observation(train_X)
+            test_encoded_x, _ = _normalize_clip_observation(test_X)
             extra_tensors['rms'] = rms
         else:
-            encoded_x = X
+            train_encoded_x = train_X
+            test_encoded_x = test_X
 
-        encoded_x = encode_observation(ob_space, encoded_x)
+        train_encoded_x = encode_observation(ob_space, train_encoded_x)
+        test_encoded_x = encode_observation(ob_space, test_encoded_x)
 
         with tf.variable_scope('pi', reuse=tf.AUTO_REUSE):
-            policy_latent, intermediate_feature = policy_network(encoded_x)
+            policy_latent, train_intermediate_feature = policy_network(train_encoded_x)
+            _, test_intermediate_feature = policy_network(test_encoded_x)
             if isinstance(policy_latent, tuple):
                 policy_latent, recurrent_tensors = policy_latent
 
@@ -170,12 +176,14 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
 
         policy = PolicyWithValue(
             env=env,
-            observations=X,
+            train_observations=train_X,
+            test_observations=test_X,
             latent=policy_latent,
             vf_latent=vf_latent,
             sess=sess,
             estimate_q=estimate_q,
-            intermediate_feature=intermediate_feature,
+            train_intermediate_feature=train_intermediate_feature,
+            test_intermediate_feature=test_intermediate_feature,
             **extra_tensors
         )
         return policy

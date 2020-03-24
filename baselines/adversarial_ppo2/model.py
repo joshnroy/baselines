@@ -82,13 +82,7 @@ class Model(object):
 
         self.num_levels = num_levels
 
-        if disc_coeff is not None:
-            self.disc_coeff = disc_coeff
-        else:
-            self.disc_coeff = tf.placeholder(tf.float32, [])
-
-        self.gen_training = True
-        self.disc_training = True
+        self.disc_coeff = disc_coeff
 
         if MPI is not None and comm is None:
             comm = MPI.COMM_WORLD
@@ -103,9 +97,10 @@ class Model(object):
                 train_model = policy(nbatch_train, nsteps, sess)
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
+
         with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
-            discriminator_inputs = train_model.intermediate_feature
+            discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
 
             predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
@@ -118,16 +113,13 @@ class Model(object):
         # Keep track of old critic
         self.OLDVPRED = OLDVPRED = tf.placeholder(tf.float32, [None])
         self.LR = LR = tf.placeholder(tf.float32, [])
+
+        self.TRAIN_GEN = tf.placeholder(tf.float32, [])
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        self.TRAIN_GEN = tf.placeholder(tf.float32, [])
-
-        # Seed labels for the discriminator
-        self.LABELS = LABELS = tf.placeholder(tf.float32, [None])
-
-        self.real_labels_loss = tf.reduce_mean(((1 - self.LABELS)) * predicted_logits[:, 0])
-        self.fake_labels_loss = tf.reduce_mean((self.LABELS) * predicted_logits[:, 0])
+        self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
+        self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
         discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
         neglogpac = train_model.pd.neglogp(A)
 
@@ -165,25 +157,22 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
         # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
         pd_loss = -self.fake_labels_loss
+
+        loss = rl_loss + self.TRAIN_GEN * self.disc_coeff * pd_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
-        # self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 100.)
-        self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
-
-        state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.intermediate_feature, axis=0))
+        state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_intermediate_feature, axis=0))
 
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance']
+
         self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance]
-        if isinstance(self.disc_coeff, tf.Tensor):
-            self.loss_names.append("disc_coeff")
-            self.stats_list.append(self.disc_coeff)
 
         self.train_model = train_model
         self.act_model = act_model
@@ -202,28 +191,6 @@ class Model(object):
         self.training_i = 0
 
         self.clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('discriminator_model')]
-
-    def update_generator_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
-        params = tf.trainable_variables('ppo2_model')
-        if comm is not None and comm.Get_size() > 1:
-            self.generator_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
-        else:
-            # self.generator_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
-            self.generator_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
-            # self.generator_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
-        # grads_and_var = self.generator_trainer.compute_gradients(loss, params)
-        grads_and_var = self.generator_trainer.compute_gradients(loss, params)
-        grads, var = zip(*grads_and_var)
-        if max_grad_norm is not None:
-            # Clip the gradients (normalize)
-            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
-        grads_and_var = list(zip(grads, var))
-
-        self.generator_grads = grads
-        self.generator_var = var
-        self.generator_train_op = self.policy_trainer.apply_gradients(grads_and_var)
-
-        return grads
 
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
@@ -286,11 +253,9 @@ class Model(object):
                 print(l, self.num_levels)
                 sys.exit()
 
-        # labels = np.array([np.zeros((8, 8), dtype=np.int64) + l for l in labels])
-        # labels = np.zeros_like(labels, dtype=np.int64)
-
-        td_map_policy = {
-            self.train_model.X : obs,
+        td_map = {
+            self.train_model.train_X : obs,
+            self.train_model.test_X : eval_obs,
             self.A : actions,
             self.ADV : advs,
             self.R : returns,
@@ -298,38 +263,10 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.LABELS : np.zeros_like(labels, dtype=np.float32),
-            self.TRAIN_GEN: 0.,
-        }
-        if isinstance(self.disc_coeff, tf.Tensor):
-            td_map[self.disc_coeff] = (self.training_i / 10000.)
-
-        td_map_eval = {
-            self.train_model.X : eval_obs,
-            self.A : actions,
-            self.ADV : advs,
-            self.R : returns,
-            self.LR : lr,
-            self.CLIPRANGE : cliprange,
-            self.OLDNEGLOGPAC : neglogpacs,
-            self.OLDVPRED : values,
-            self.LABELS : np.ones_like(eval_labels, dtype=np.float32),
-            self.TRAIN_GEN: 0.,
+            self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op], td_map_policy)[:-1]
-
-        out_real, pd_loss_real, real_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[6], self.stats_list[9], self.discriminator_train_op, self.clip_D], td_map_policy)[0:3]
-        out_fake, pd_loss_fake, fake_labels_loss = self.sess.run([self.stats_list[5], self.stats_list[6], self.stats_list[10], self.discriminator_train_op, self.clip_D], td_map_eval)[0:3]
-        out[5] = (out_real + out_fake) / 2.
-        out[9] = real_labels_loss
-        out[10] = real_labels_loss
-        out[6] = (pd_loss_real + pd_loss_fake) / 2.
-        if self.training_i % 5 == 0:
-            out_real = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_policy)[0]
-            out_fake = self.sess.run([self.stats_list[6], self.generator_train_op], td_map_eval)[0]
-            out[6] = (out_real + out_fake) / 2.
-
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
         self.training_i += 1
 
         return out
