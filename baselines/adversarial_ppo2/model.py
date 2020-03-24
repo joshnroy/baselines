@@ -177,8 +177,10 @@ class Model(object):
         # self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm / 100.)
         self.update_generator_params(comm, self.disc_coeff * pd_loss, mpi_rank_weight, LR, max_grad_norm)
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss']
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss]
+        state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.intermediate_feature, axis=0))
+
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance']
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance]
         if isinstance(self.disc_coeff, tf.Tensor):
             self.loss_names.append("disc_coeff")
             self.stats_list.append(self.disc_coeff)
@@ -219,7 +221,7 @@ class Model(object):
 
         self.generator_grads = grads
         self.generator_var = var
-        self.generator_train_op = self.generator_trainer.apply_gradients(grads_and_var)
+        self.generator_train_op = self.policy_trainer.apply_gradients(grads_and_var)
 
         return grads
 
