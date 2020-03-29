@@ -92,8 +92,8 @@ class Model(object):
             # act_model that is used for sampling
             act_model = policy(nbatch_act, 1, sess)
 
-            self.loss_weight_policy = tf.Variable(-0.346574, name="loss_weight_policy")
-            self.loss_weight_pd = tf.Variable(-0.346574, name="loss_weight_pd")
+            self.loss_weight_policy = tf.Variable(0., name="loss_weight_policy")
+            self.loss_weight_pd = tf.Variable(0., name="loss_weight_pd")
 
             # Train model for training
             if microbatch_size is None:
@@ -160,14 +160,18 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
 
         # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
         pd_loss = -self.fake_labels_loss
 
-        rl_weight = (0.5 / tf.exp(self.loss_weight_policy)**2)
-        pd_weight = (0.5 / tf.exp(self.loss_weight_pd)**2)
-        loss = rl_weight * rl_loss + self.loss_weight_policy #+ self.TRAIN_GEN * pd_weight + self.TRAIN_GEN * self.loss_weight_pd
+        rl_weight = tf.sigmoid(0.5 / tf.exp(self.loss_weight_policy))
+        pd_weight = tf.sigmoid(0.5 / tf.exp(self.loss_weight_pd))
+
+        log_loss_weight_policy = tf.nn.softsign(rl_loss) * (self.loss_weight_policy / 2.)
+        log_loss_weight_pd = tf.nn.softsign(pd_loss) * (self.loss_weight_pd / 2.)
+
+        loss = rl_weight * rl_loss + log_loss_weight_policy + self.TRAIN_GEN * pd_weight * pd_loss + self.TRAIN_GEN * log_loss_weight_pd
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -175,9 +179,9 @@ class Model(object):
 
         state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_intermediate_feature, axis=0))
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance', 'rl_weight', 'pd_weight']
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance', 'rl_weight', 'pd_weight', 'loss_weight_policy', 'loss_weight_pd', 'log_loss_weight_policy', 'log_loss_weight_pd']
 
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance, rl_weight, pd_weight]
+        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance, rl_weight, pd_weight, self.loss_weight_policy, self.loss_weight_pd, log_loss_weight_policy, log_loss_weight_pd]
 
         self.train_model = train_model
         self.act_model = act_model
