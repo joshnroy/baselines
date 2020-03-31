@@ -165,13 +165,13 @@ class Model(object):
         # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
         pd_loss = -self.fake_labels_loss
 
-        rl_weight = tf.sigmoid(0.5 / tf.exp(self.loss_weight_policy))
-        pd_weight = tf.sigmoid(0.5 / tf.exp(self.loss_weight_pd))
+        rl_weight = 0.5 / tf.exp(self.loss_weight_policy)
+        pd_weight = 0.5 / tf.exp(self.loss_weight_pd)
 
-        log_loss_weight_policy = tf.nn.softsign(rl_loss) * (self.loss_weight_policy / 2.)
-        log_loss_weight_pd = tf.nn.softsign(pd_loss) * (self.loss_weight_pd / 2.)
+        log_loss_weight_policy = self.loss_weight_policy / 2.
+        log_loss_weight_pd = self.loss_weight_pd / 2.
 
-        loss = rl_weight * rl_loss + log_loss_weight_policy + self.TRAIN_GEN * pd_weight * pd_loss + self.TRAIN_GEN * log_loss_weight_pd
+        loss = rl_weight * (1. + rl_loss) + log_loss_weight_policy + self.TRAIN_GEN * pd_weight * (1. + pd_loss) + self.TRAIN_GEN * log_loss_weight_pd
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
