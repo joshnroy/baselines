@@ -162,7 +162,7 @@ class Model(object):
         # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
         pd_loss = -self.fake_labels_loss
 
-        loss = rl_loss + self.TRAIN_GEN * self.disc_coeff * pd_loss
+        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -196,6 +196,7 @@ class Model(object):
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
         params = tf.trainable_variables('ppo2_model')
+        # params = [p for p in params if "cnn" not in p.name]
         # 2. Build our trainer
         if comm is not None and comm.Get_size() > 1:
             self.policy_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)

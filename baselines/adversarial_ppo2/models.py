@@ -62,6 +62,7 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         out = residual_block(out)
         return out
 
+    # with tf.variable_scope('cnn', reuse=tf.AUTO_REUSE):
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
     # out = conv_layer(out, 1, kernel_size=3)
