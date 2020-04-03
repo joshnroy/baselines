@@ -13,6 +13,7 @@ try:
     from baselines.common.mpi_util import sync_from_root
 except ImportError:
     MPI = None
+import matplotlib.pyplot as plt
 
 def build_discriminator(inputs, num_levels):
     """
@@ -100,7 +101,7 @@ class Model(object):
 
         with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
-            discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+            discriminator_inputs = train_model.train_intermediate_feature
 
             predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
@@ -113,13 +114,14 @@ class Model(object):
         # Keep track of old critic
         self.OLDVPRED = OLDVPRED = tf.placeholder(tf.float32, [None])
         self.LR = LR = tf.placeholder(tf.float32, [])
+        self.labels = tf.placeholder(tf.float32, [None])
 
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-        self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
+        self.real_labels_loss = tf.reduce_mean(self.labels * predicted_logits[:, 0])
+        self.fake_labels_loss = tf.reduce_mean((1. - self.labels) * predicted_logits[:, 0])
         discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
         neglogpac = train_model.pd.neglogp(A)
 
@@ -256,7 +258,6 @@ class Model(object):
 
         td_map = {
             self.train_model.train_X : obs,
-            self.train_model.test_X : eval_obs,
             self.A : actions,
             self.ADV : advs,
             self.R : returns,
@@ -265,6 +266,7 @@ class Model(object):
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
             self.TRAIN_GEN : self.training_i % 5 == 0,
+            self.labels : labels,
         }
 
         out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
