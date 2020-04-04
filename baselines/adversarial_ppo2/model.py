@@ -264,10 +264,14 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.TRAIN_GEN : self.training_i % 5 == 0,
+            self.TRAIN_GEN : 1,
         }
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
+        if self.training_i % 5 == 0:
+            out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
+        else:
+            td_map[self.TRAIN_GEN] = 0
+            out = self.sess.run(self.stats_list + [self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
         self.training_i += 1
 
         return out
