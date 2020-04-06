@@ -163,6 +163,7 @@ class Model(object):
         pd_loss = -self.fake_labels_loss
 
         loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss
+        # loss = self.disc_coeff * rl_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -264,10 +265,18 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
+            # self.TRAIN_GEN : 1,
             self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
+        # if self.training_i % 5 == 0:
+        #     out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
+        # else:
+        #     td_map[self.TRAIN_GEN] = 0
+        #     out = self.sess.run(self.stats_list + [self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
+
         out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
+        # out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
         self.training_i += 1
 
         return out
