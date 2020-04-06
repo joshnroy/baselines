@@ -14,7 +14,7 @@ try:
 except ImportError:
     MPI = None
 
-def build_discriminator(inputs, num_levels):
+def build_discriminator(inputs):
     """
     Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
     Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
@@ -98,11 +98,16 @@ class Model(object):
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
 
-        with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
-            # CREATE DISCRIMINTATOR MODEL
-            discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+            # TODO: INSERT RECONSTRUCTOR
 
-            predicted_logits = build_discriminator(discriminator_inputs, num_levels)
+        with tf.variable_scope('s_discriminator_model', reuse=tf.AUTO_REUSE):
+            # CREATE DISCRIMINTATOR MODEL
+            disc_s_inputs = tf.concat([train_model.train_s, train_model.test_s], 0)
+            disc_s_logits = build_discriminator(disc_s_inputs)
+
+        with tf.variable_scope('rp_discriminator_model', reuse=tf.AUTO_REUSE):
+            disc_rp_inputs = tf.concat([train_model.train_rp, train_model.test_rp], 0)
+            disc_rp_logits = build_discriminator(disc_rp_inputs)
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -118,18 +123,20 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-        self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
-        discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
-        neglogpac = train_model.pd.neglogp(A)
+        self.s_source_labels_loss = tf.reduce_mean(disc_s_logits[:nbatch_train, 0])
+        self.s_target_labels_loss = tf.reduce_mean(disc_s_logits[nbatch_train:, 0])
+        s_discriminator_loss = -self.s_source_labels_loss + self.s_target_labels_loss
 
+        self.rp_source_labels_loss = tf.reduce_mean(disc_rp_logits[:nbatch_train, 0])
+        self.rp_target_labels_loss = tf.reduce_mean(disc_rp_logits[nbatch_train:, 0])
+        rp_discriminator_loss = -self.rp_source_labels_loss + self.rp_target_labels_loss
+
+        neglogpac = train_model.pd.neglogp(A)
         # Calculate the entropy
         # Entropy is used to improve exploration by limiting the premature convergence to suboptimal policy.
         entropy = tf.reduce_mean(train_model.pd.entropy())
 
         # CALCULATE THE LOSS
-        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss - discriminator_loss
-
         # Clip the value to reduce variability during Critic training
         # Get the predicted value
         vpred = train_model.vf
@@ -143,7 +150,6 @@ class Model(object):
 
         # Calculate ratio (pi current policy / pi old policy)
         ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
-        # ratio = 1.
 
         # Defining Loss = - J is equivalent to max J
         pg_losses = -ADV * ratio
@@ -152,28 +158,44 @@ class Model(object):
 
         # Final PG loss
         pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
-        # pg_loss = tf.reduce_mean(pg_losses)
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
         rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
-        pd_loss = -self.fake_labels_loss
+        pd_loss = -self.s_target_labels_loss
 
-        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss
-        # loss = self.disc_coeff * rl_loss
+        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss# + self.recon_coeff * recon_loss
 
-        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        self.update_discriminator_params(comm, s_discriminator_loss, mpi_rank_weight, LR, max_grad_norm, s=True)
+        self.update_discriminator_params(comm, rp_discriminator_loss, mpi_rank_weight, LR, max_grad_norm, s=False)
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
-        state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_intermediate_feature, axis=0))
+        state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_s, axis=0))
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance']
-
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance]
+        stats = {
+            "policy_loss": pg_loss,
+            "value_loss": vf_loss,
+            "policy_entropy": entropy,
+            "approxkl": approxkl,
+            "clipfrac": clipfrac,
+            "s_discriminator_loss": s_discriminator_loss,
+            "rp_discriminator_loss": rp_discriminator_loss,
+            "pd_loss": pd_loss,
+            "s_source_labels_loss": self.s_source_labels_loss,
+            "s_target_labels_loss": self.s_target_labels_loss,
+            "rp_source_labels_loss": self.rp_source_labels_loss,
+            "rp_target_labels_loss": self.rp_target_labels_loss,
+            "state_variance": state_variance,
+            # "reconstruction_loss": recon_loss,
+        }
+        self.loss_names = []
+        self.stats_list = []
+        for k in stats.keys():
+            self.loss_names.append(k)
+            self.stats_list.append(stats[k])
 
         self.train_model = train_model
         self.act_model = act_model
@@ -191,7 +213,8 @@ class Model(object):
 
         self.training_i = 0
 
-        self.clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('discriminator_model')]
+        self.s_clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('s_discriminator_model')]
+        self.rp_clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('rp_discriminator_model')]
 
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
@@ -221,26 +244,34 @@ class Model(object):
 
         return grads
 
-    def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm):
+    def update_discriminator_params(self, comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm, s):
         # UPDATE DISCRIMINTATOR PARAMETERS USING DISCRIMINTATOR_LOSS
         # 1. Get the model parameters
-        disc_params = tf.trainable_variables('discriminator_model')
+        if s:
+            disc_params = tf.trainable_variables('s_discriminator_model')
+        else:
+            disc_params = tf.trainable_variables('rp_discriminator_model')
         # 2. Build our trainer
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
             # self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
-            self.disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
-            # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
+            if s:
+                disc_trainer = self.s_disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
+            else:
+                disc_trainer = self.rp_disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
         # 3. Calculate gradients
-        disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
+        disc_grads_and_var = disc_trainer.compute_gradients(discriminator_loss, disc_params)
         disc_grads, disc_var = zip(*disc_grads_and_var)
 
         if max_grad_norm is not None:
             # Clip the gradients (normalize)
             disc_grads, _disc_grad_norm = tf.clip_by_global_norm(disc_grads, max_grad_norm)
         disc_grads_and_var = list(zip(disc_grads, disc_var))
-        self.discriminator_train_op = self.disc_trainer.apply_gradients(disc_grads_and_var)
+        if s:
+            self.s_discriminator_train_op = disc_trainer.apply_gradients(disc_grads_and_var)
+        else:
+            self.rp_discriminator_train_op = disc_trainer.apply_gradients(disc_grads_and_var)
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, labels, eval_obs, eval_labels, train_disc=None, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
@@ -265,18 +296,10 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            # self.TRAIN_GEN : 1,
             self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
-        # if self.training_i % 5 == 0:
-        #     out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-        # else:
-        #     td_map[self.TRAIN_GEN] = 0
-        #     out = self.sess.run(self.stats_list + [self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-        # out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.s_discriminator_train_op, self.rp_discriminator_train_op, self.s_clip_D, self.rp_clip_D], td_map)[:len(self.stats_list)]
         self.training_i += 1
 
         return out

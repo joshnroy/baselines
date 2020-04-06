@@ -62,24 +62,27 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         out = residual_block(out)
         return out
 
-    # with tf.variable_scope('cnn', reuse=tf.AUTO_REUSE):
     out = tf.cast(unscaled_images, tf.float32) / 255.
-
-    # out = conv_layer(out, 1, kernel_size=3)
+    out_s = out
+    out_rp = out
 
     for i, depth in enumerate(depths):
-        out = conv_sequence(out, depth)
-        # if i == 0:
-        #     intermediate_features = out
+        out_s = conv_sequence(out_s, depth)
+        out_rp = conv_sequence(out_rp, depth)
 
-    # temp = out
-    out = tf.layers.flatten(out)
-    out = tf.nn.leaky_relu(out)
-    intermediate_features = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(intermediate_features)
+    out_s = tf.layers.flatten(out_s)
+    out_rp = tf.layers.flatten(out_rp)
 
-    # intermediate_features = tf.reshape(intermediate_features, (intermediate_features.shape[0], -1))
-    return out, intermediate_features
+    out_s = tf.nn.leaky_relu(out_s)
+    out_rp = tf.nn.leaky_relu(out_rp)
+
+    out_s = tf.layers.dense(out_s, 256, name='layer_' + get_layer_num_str())
+    out_rp = tf.layers.dense(out_rp, 256, name='layer_' + get_layer_num_str())
+
+    out_s = tf.nn.leaky_relu(out_s)
+    out_rp = tf.nn.leaky_relu(out_rp)
+
+    return out_s, out_rp
 
 
 @register("mlp")
