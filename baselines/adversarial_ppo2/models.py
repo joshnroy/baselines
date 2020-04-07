@@ -41,23 +41,23 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return num_str
 
     def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
-        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
+        return tf.layers.conv2d(out, depth, kernel_size, padding='same', strides=strides, name="impala_layer_" + get_layer_num_str())
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
 
-        out = tf.nn.leaky_relu(inputs)
+        out = tf.nn.leaky_relu(inputs, name="impala_layer_" + get_layer_num_str())
 
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        out = tf.nn.leaky_relu(out)
+        out = tf.layers.batch_normalization(out, name="impala_layer_" + get_layer_num_str())
+        out = tf.nn.leaky_relu(out, name="impala_layer_" + get_layer_num_str())
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
+        out = tf.layers.batch_normalization(out, name="impala_layer_" + get_layer_num_str())
         return out + inputs
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out)
+        out = tf.layers.batch_normalization(out, name="impala_layer_" + get_layer_num_str())
         out = residual_block(out)
         out = residual_block(out)
         return out
@@ -76,11 +76,11 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
     out_s = tf.nn.leaky_relu(out_s)
     out_rp = tf.nn.leaky_relu(out_rp)
 
-    out_s = tf.layers.dense(out_s, 256, name='layer_' + get_layer_num_str())
-    out_rp = tf.layers.dense(out_rp, 256, name='layer_' + get_layer_num_str())
+    out_s = tf.layers.dense(out_s, 128, name="impala_layer_" + get_layer_num_str())
+    out_rp = tf.layers.dense(out_rp, 128, name="impala_layer_" + get_layer_num_str())
 
-    out_s = tf.nn.leaky_relu(out_s)
-    out_rp = tf.nn.leaky_relu(out_rp)
+    # out_s = tf.nn.tanh(out_s)
+    # out_rp = tf.nn.tanh(out_rp)
 
     return out_s, out_rp
 

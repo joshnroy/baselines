@@ -15,11 +15,23 @@ except ImportError:
     MPI = None
 
 def build_discriminator(inputs):
-    """
-    Model used in the paper "IMPALA: Scalable Distributed Deep-RL with
-    Importance Weighted Actor-Learner Architectures" https://arxiv.org/abs/1802.01561
-    """
+    layer_num = 0
 
+    def get_layer_num_str():
+        nonlocal layer_num
+        num_str = str(layer_num)
+        layer_num += 1
+        return num_str
+    out = tf.nn.tanh(inputs)
+    # out = inputs
+
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512), name="discriminator_layer_" + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512), name="discriminator_layer_" + get_layer_num_str())
+    out = tf.layers.dense(out, 1)
+
+    return out
+
+def build_reconstructor(inputs):
     layer_num = 0
 
     def get_layer_num_str():
@@ -28,38 +40,20 @@ def build_discriminator(inputs):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
-        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
+    out = tf.nn.leaky_relu(tf.layers.dense(inputs, 2048), name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.reshape(out, (-1, 8, 8, 32))
 
-    def residual_block(inputs):
-        depth = inputs.get_shape()[-1].value
+    out = tf.layers.conv2d_transpose(out, 32, 2, strides=2, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.layers.batch_normalization(out, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.nn.leaky_relu(out, name="reconstructor_layer_" + get_layer_num_str())
 
-        out = tf.nn.leaky_relu(inputs)
+    out = tf.layers.conv2d_transpose(out, 64, 2, strides=2, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.layers.batch_normalization(out, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.nn.leaky_relu(out, name="reconstructor_layer_" + get_layer_num_str())
 
-        out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        out = tf.nn.leaky_relu(out)
-        out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        return out + inputs
-
-    def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out)
-        out = residual_block(out)
-        out = residual_block(out)
-        return out
-
-    out = tf.nn.tanh(inputs)
-
-    if len(out.shape) > 3:
-        out = tf.nn.leaky_relu(conv_layer(out, 128))
-        out = tf.nn.leaky_relu(conv_layer(out, 2))
-        out = tf.reduce_mean(out, axis=(1, 2))
-    else:
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.layers.dense(out, 1)
+    out = tf.layers.conv2d_transpose(out, 3, 2, strides=2, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.layers.batch_normalization(out, name="reconstructor_layer_" + get_layer_num_str())
+    out = tf.nn.tanh(out, name="reconstructor_layer_" + get_layer_num_str())
 
     return out
 
@@ -99,6 +93,11 @@ class Model(object):
                 train_model = policy(microbatch_size, nsteps, sess)
 
             # TODO: INSERT RECONSTRUCTOR
+            train_concatted_features = tf.concat([train_model.train_s, train_model.train_rp], 1)
+            test_concatted_features = tf.concat([train_model.test_s, train_model.test_rp], 1)
+
+            train_reconstruction = build_reconstructor(train_concatted_features)
+            test_reconstruction = build_reconstructor(test_concatted_features)
 
         with tf.variable_scope('s_discriminator_model', reuse=tf.AUTO_REUSE):
             # CREATE DISCRIMINTATOR MODEL
@@ -123,8 +122,8 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        self.s_source_labels_loss = tf.reduce_mean(disc_s_logits[:nbatch_train, 0])
-        self.s_target_labels_loss = tf.reduce_mean(disc_s_logits[nbatch_train:, 0])
+        self.s_source_labels_loss = tf.reduce_mean(disc_s_logits[:nbatch_train])
+        self.s_target_labels_loss = tf.reduce_mean(disc_s_logits[nbatch_train:])
         s_discriminator_loss = -self.s_source_labels_loss + self.s_target_labels_loss
 
         self.rp_source_labels_loss = tf.reduce_mean(disc_rp_logits[:nbatch_train, 0])
@@ -162,11 +161,17 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
 
         pd_loss = -self.s_target_labels_loss
 
-        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss# + self.recon_coeff * recon_loss
+        # Reconstruction losses
+
+        train_recon_loss = tf.reduce_mean((tf.cast(train_model.train_X, tf.float32)/255. - train_reconstruction)**2.)
+        test_recon_loss = tf.reduce_mean((tf.cast(train_model.test_X, tf.float32)/255. - test_reconstruction)**2.)
+
+        self.recon_coeff = 1.
+        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss + self.recon_coeff * (train_recon_loss + test_recon_loss)
 
         self.update_discriminator_params(comm, s_discriminator_loss, mpi_rank_weight, LR, max_grad_norm, s=True)
         self.update_discriminator_params(comm, rp_discriminator_loss, mpi_rank_weight, LR, max_grad_norm, s=False)
@@ -174,6 +179,7 @@ class Model(object):
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
         state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_s, axis=0))
+        rp_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_rp, axis=0))
 
         stats = {
             "policy_loss": pg_loss,
@@ -189,7 +195,9 @@ class Model(object):
             "rp_source_labels_loss": self.rp_source_labels_loss,
             "rp_target_labels_loss": self.rp_target_labels_loss,
             "state_variance": state_variance,
-            # "reconstruction_loss": recon_loss,
+            "rp_variance": rp_variance,
+            "train_reconstruction_loss": train_recon_loss,
+            "test_reconstruction_loss": test_recon_loss,
         }
         self.loss_names = []
         self.stats_list = []
@@ -299,7 +307,9 @@ class Model(object):
             self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.s_discriminator_train_op, self.rp_discriminator_train_op, self.s_clip_D, self.rp_clip_D], td_map)[:len(self.stats_list)]
+        # out = self.sess.run(self.stats_list + [self.policy_train_op, self.s_discriminator_train_op, self.rp_discriminator_train_op], td_map)[:len(self.stats_list)]
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.s_discriminator_train_op, self.rp_discriminator_train_op], td_map)[:len(self.stats_list)]
+        self.sess.run([self.s_clip_D, self.rp_clip_D])
         self.training_i += 1
 
         return out

@@ -152,6 +152,7 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
         with tf.variable_scope('pi', reuse=tf.AUTO_REUSE):
             train_s, train_rp = policy_network(train_encoded_x)
             test_s, test_rp = policy_network(test_encoded_x)
+            policy_latent = tf.nn.leaky_relu(train_s)
             # if isinstance(policy_latent, tuple):
             #     policy_latent, recurrent_tensors = policy_latent
 
@@ -166,7 +167,7 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
         _v_net = value_network
 
         if _v_net is None or _v_net == 'shared':
-            vf_latent = train_s
+            vf_latent = policy_latent
         else:
             if _v_net == 'copy':
                 _v_net = policy_network
@@ -181,7 +182,7 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
             env=env,
             train_observations=train_X,
             test_observations=test_X,
-            latent=train_s,
+            latent=policy_latent,
             vf_latent=vf_latent,
             sess=sess,
             estimate_q=estimate_q,
