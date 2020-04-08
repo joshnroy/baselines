@@ -41,44 +41,38 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         return num_str
 
     def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
-        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
+        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='impala_layer_' + get_layer_num_str(), strides=strides)
 
     def residual_block(inputs):
         depth = inputs.get_shape()[-1].value
 
-        out = tf.nn.leaky_relu(inputs)
+        out = tf.nn.leaky_relu(inputs, name='impala_layer_' + get_layer_num_str())
 
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        out = tf.nn.leaky_relu(out)
+        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
+        out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
+        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         return out + inputs
 
     def conv_sequence(inputs, depth):
         out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out)
+        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         out = residual_block(out)
         out = residual_block(out)
         return out
 
-    # with tf.variable_scope('cnn', reuse=tf.AUTO_REUSE):
     out = tf.cast(unscaled_images, tf.float32) / 255.
-
-    # out = conv_layer(out, 1, kernel_size=3)
 
     for i, depth in enumerate(depths):
         out = conv_sequence(out, depth)
-        # if i == 0:
-        #     intermediate_features = out
 
     # temp = out
-    out = tf.layers.flatten(out)
-    out = tf.nn.leaky_relu(out)
-    intermediate_features = tf.layers.dense(out, 256, name='layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(intermediate_features)
+    out = tf.layers.flatten(out, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
+    intermediate_features = tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(intermediate_features, name='impala_layer_' + get_layer_num_str())
 
-    # intermediate_features = tf.reshape(intermediate_features, (intermediate_features.shape[0], -1))
     return out, intermediate_features
 
 

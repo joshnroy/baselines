@@ -28,38 +28,11 @@ def build_discriminator(inputs, num_levels):
         layer_num += 1
         return num_str
 
-    def conv_layer(out, depth, strides=(1, 1), kernel_size=3):
-        return tf.layers.conv2d(out, depth, kernel_size, padding='same', name='layer_' + get_layer_num_str(), strides=strides)
-
-    def residual_block(inputs):
-        depth = inputs.get_shape()[-1].value
-
-        out = tf.nn.leaky_relu(inputs)
-
-        out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        out = tf.nn.leaky_relu(out)
-        out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out)
-        return out + inputs
-
-    def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out)
-        out = residual_block(out)
-        out = residual_block(out)
-        return out
-
     out = tf.nn.tanh(inputs)
 
-    if len(out.shape) > 3:
-        out = tf.nn.leaky_relu(conv_layer(out, 128))
-        out = tf.nn.leaky_relu(conv_layer(out, 2))
-        out = tf.reduce_mean(out, axis=(1, 2))
-    else:
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.nn.leaky_relu(tf.layers.dense(out, 512))
-        out = tf.layers.dense(out, 1)
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
 
     return out
 
@@ -265,18 +238,11 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            # self.TRAIN_GEN : 1,
             self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
-        # if self.training_i % 5 == 0:
-        #     out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-        # else:
-        #     td_map[self.TRAIN_GEN] = 0
-        #     out = self.sess.run(self.stats_list + [self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op, self.clip_D], td_map)[:len(self.stats_list)]
-        # out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
+        self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out
