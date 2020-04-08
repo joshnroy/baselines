@@ -76,8 +76,8 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
     out_s = tf.nn.leaky_relu(out_s)
     out_rp = tf.nn.leaky_relu(out_rp)
 
-    out_s = tf.layers.dense(out_s, 128, name="impala_layer_" + get_layer_num_str())
-    out_rp = tf.layers.dense(out_rp, 128, name="impala_layer_" + get_layer_num_str())
+    out_s = tf.layers.dense(out_s, 256, name="impala_layer_" + get_layer_num_str())
+    out_rp = tf.layers.dense(out_rp, 256, name="impala_layer_" + get_layer_num_str())
 
     # out_s = tf.nn.tanh(out_s)
     # out_rp = tf.nn.tanh(out_rp)
