@@ -1,6 +1,7 @@
 import numpy as np
 from baselines.common.runners import AbstractEnvRunner
 import matplotlib.pyplot as plt
+import sys
 
 class Runner(AbstractEnvRunner):
     """
@@ -26,16 +27,18 @@ class Runner(AbstractEnvRunner):
         mb_seeds = []
         mb_states = self.states
         epinfos = []
+        mb_latents = []
         # For n in range number of steps
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
-            actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones, train=self.train)
+            actions, values, self.states, neglogpacs, latents = self.model.step(self.obs, S=self.states, M=self.dones, train=self.train)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
+            mb_latents.append(latents)
 
             # Take actions in env and look the results
             # Infos contains a ton of useful informations
@@ -53,6 +56,7 @@ class Runner(AbstractEnvRunner):
             mb_seeds.append(seeds)
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
+        mb_latents = np.concatenate(mb_latents)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
         mb_values = np.asarray(mb_values, dtype=np.float32)
@@ -75,8 +79,9 @@ class Runner(AbstractEnvRunner):
             delta = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal - mb_values[t]
             mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + mb_values
-        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_seeds)),
-            mb_states, epinfos)
+        ret = (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_seeds)),
+            mb_states, epinfos, mb_latents)
+        return ret
 # obs, returns, masks, actions, values, neglogpacs, states = runner.run()
 def sf01(arr):
     """
