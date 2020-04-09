@@ -135,7 +135,7 @@ class Model(object):
         # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
         pd_loss = -self.fake_labels_loss
 
-        loss = self.disc_coeff * rl_loss + self.TRAIN_GEN * pd_loss
+        loss = rl_loss + self.TRAIN_GEN * self.disc_coeff * pd_loss
         # loss = self.disc_coeff * rl_loss
 
         self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
