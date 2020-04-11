@@ -71,11 +71,12 @@ class Model(object):
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
 
-        with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
-            # CREATE DISCRIMINTATOR MODEL
-            discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+        if self.disc_coeff > 0.:
+            with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
+                # CREATE DISCRIMINTATOR MODEL
+                discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
 
-            predicted_logits = build_discriminator(discriminator_inputs, num_levels)
+                predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -91,9 +92,10 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-        self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
-        discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+        if self.disc_coeff > 0.:
+            self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
+            self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
+            discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -132,21 +134,45 @@ class Model(object):
         # Total loss
         rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
-        # pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
-        pd_loss = -self.fake_labels_loss
+        if self.disc_coeff > 0.:
+            pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
+            # pd_loss = -self.fake_labels_loss
 
-        loss = rl_loss + self.TRAIN_GEN * self.disc_coeff * pd_loss
-        # loss = self.disc_coeff * rl_loss
+        loss = rl_loss
+        if self.disc_coeff > 0.:
+            loss +=  self.TRAIN_GEN * self.disc_coeff * pd_loss
 
-        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        if self.disc_coeff > 0.:
+            self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
         state_variance = tf.reduce_mean(tf.math.reduce_std(train_model.train_intermediate_feature, axis=0))
 
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac', 'discriminator_loss', 'pd_loss', 'critic_min', 'critic_max', 'real_labels_loss', 'fake_labels_loss', 'state_variance']
+        stats_dict = {
+            'policy_loss': pg_loss,
+            'value_loss': vf_loss,
+            'policy_entropy': entropy,
+            'approxkl': approxkl,
+            'clipfrac': clipfrac,
+            'state_variance': state_variance
+        }
 
-        self.stats_list = [pg_loss, vf_loss, entropy, approxkl, clipfrac, discriminator_loss, pd_loss, tf.reduce_min(predicted_logits), tf.reduce_max(predicted_logits), self.real_labels_loss, self.fake_labels_loss, state_variance]
+        if self.disc_coeff > 0.:
+            stats_dict.update({
+                'discriminator_loss': discriminator_loss,
+                'pd_loss': pd_loss,
+                'critic_min': tf.reduce_min(predicted_logits),
+                'critic_max': tf.reduce_max(predicted_logits),
+                'real_labels_loss': self.real_labels_loss,
+                'fake_labels_loss': self.fake_labels_loss
+            })
+
+        self.loss_names = []
+        self.stats_list = []
+        for k in stats_dict.keys():
+            self.loss_names.append(k)
+            self.stats_list.append(stats_dict[k])
 
         self.train_model = train_model
         self.act_model = act_model
@@ -241,8 +267,12 @@ class Model(object):
             self.TRAIN_GEN : self.training_i % 5 == 0,
         }
 
-        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
-        self.sess.run([self.clip_D])
+        if self.disc_coeff == 0.0:
+            td_map[self.TRAIN_GEN] = 0
+            out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
+        else:
+            out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
+            self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out
