@@ -302,7 +302,7 @@ def evaluate(*, network, total_timesteps, eval_env, seed=None, nsteps=1024,
     tfirststart = time.perf_counter()
 
     nupdates = total_timesteps//nbatch
-    for update in trange(1, nupdates+1):
+    for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0
         # Start timer
         tstart = time.perf_counter()
