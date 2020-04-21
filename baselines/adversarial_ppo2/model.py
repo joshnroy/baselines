@@ -32,7 +32,11 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, num_levels, name='impala_layer_' + get_layer_num_str())
 
     return out
 
@@ -71,12 +75,14 @@ class Model(object):
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
 
-        if self.disc_coeff > 0.:
-            with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
-                # CREATE DISCRIMINTATOR MODEL
-                discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+        # if self.disc_coeff > 0.:
+        with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
+            # CREATE DISCRIMINTATOR MODEL
+            # discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+            discriminator_inputs = train_model.train_intermediate_feature
 
-                predicted_logits = build_discriminator(discriminator_inputs, num_levels)
+            # predicted_logits = build_discriminator(discriminator_inputs, 1)
+            predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -92,10 +98,31 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        if self.disc_coeff > 0.:
-            self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-            self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
-            discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+        self.LABELS = tf.placeholder(tf.float32, [None])
+
+        # if self.disc_coeff > 0.:
+        # self.real_labels_loss = tf.reduce_mean(self.LABELS * predicted_logits[:, 0])
+        # self.fake_labels_loss = tf.reduce_mean((1. - self.LABELS) * predicted_logits[:, 0])
+
+        # discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+
+        # pd_loss = self.real_labels_loss - self.fake_labels_loss
+
+        # pd_loss = -self.fake_labels_loss
+
+        discriminator_loss = tf.constant(0.)
+        pd_loss = tf.constant(0.)
+        for l in range(self.num_levels):
+            current_levels = tf.equal(self.LABELS, l)
+            not_current_levels = tf.logical_not(current_levels)
+
+            predicted_logits_l = predicted_logits[:, l]
+            self.real_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits_l, current_levels))
+            self.fake_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits_l, not_current_levels))
+            discriminator_loss += -self.real_labels_loss + self.fake_labels_loss
+            pd_loss += self.real_labels_loss - self.fake_labels_loss
+        discriminator_loss /= self.num_levels
+        pd_loss /= self.num_levels
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -132,18 +159,15 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
 
-        if self.disc_coeff > 0.:
-            pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
-            # pd_loss = -self.fake_labels_loss
 
         loss = rl_loss
-        if self.disc_coeff > 0.:
-            loss +=  self.TRAIN_GEN * self.disc_coeff * pd_loss
+        # if self.disc_coeff > 0.:
+        loss +=  self.TRAIN_GEN * self.disc_coeff * pd_loss
 
-        if self.disc_coeff > 0.:
-            self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
+        # if self.disc_coeff > 0.:
+        self.update_discriminator_params(comm, discriminator_loss, mpi_rank_weight, LR, max_grad_norm)
 
         self.update_policy_params(comm, loss, mpi_rank_weight, LR, max_grad_norm)
 
@@ -158,15 +182,15 @@ class Model(object):
             'state_variance': state_variance
         }
 
-        if self.disc_coeff > 0.:
-            stats_dict.update({
-                'discriminator_loss': discriminator_loss,
-                'pd_loss': pd_loss,
-                'critic_min': tf.reduce_min(predicted_logits),
-                'critic_max': tf.reduce_max(predicted_logits),
-                'real_labels_loss': self.real_labels_loss,
-                'fake_labels_loss': self.fake_labels_loss
-            })
+        # if self.disc_coeff > 0.:
+        stats_dict.update({
+            'discriminator_loss': discriminator_loss,
+            'pd_loss': pd_loss,
+            'critic_min': tf.reduce_min(predicted_logits),
+            'critic_max': tf.reduce_max(predicted_logits),
+            'real_labels_loss': self.real_labels_loss,
+            'fake_labels_loss': self.fake_labels_loss
+        })
 
         self.loss_names = []
         self.stats_list = []
@@ -249,6 +273,10 @@ class Model(object):
         # Normalize the advantages
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
+        # temp = labels > 0
+        # labels[labels == 0] = 1
+        # labels[temp] = 0
+
         for l in labels:
             if l >= self.num_levels:
                 print(l, self.num_levels)
@@ -265,14 +293,15 @@ class Model(object):
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
             self.TRAIN_GEN : self.training_i % 5 == 0,
+            self.LABELS : labels,
         }
 
-        if self.disc_coeff == 0.0:
-            td_map[self.TRAIN_GEN] = 0
-            out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
-        else:
-            out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
-            self.sess.run([self.clip_D])
+        # if self.disc_coeff == 0.0:
+            # td_map[self.TRAIN_GEN] = 0
+            # out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
+        # else:
+        out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
+        self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out

@@ -24,7 +24,6 @@ def calc_labels(labels_dict, seeds, flip_prob=0.9, range_l=0.3):
     for seed in seeds:
         if seed not in labels_dict:
             labels_dict[seed] = len(labels_dict)
-        # flip = np.random.rand() < flip_prob
         flip = False
         l = np.random.randint(200) if flip else labels_dict[seed]
         ret.append(l)
@@ -164,8 +163,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
 
         if eval_env is not None:
             eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_seeds, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
-            # eval_labels = np.array([num_levels+1 for _ in range(len(eval_obs))])
-            eval_labels = np.array([1 for _ in range(len(eval_obs))])
+            eval_labels = np.array([num_levels+1 for _ in range(len(eval_obs))])
+            # eval_labels = np.array([1 for _ in range(len(eval_obs))])
 
         if limited_eval_obs is None:
             limited_eval_obs = eval_obs
@@ -203,7 +202,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
                     # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
-                    eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
+                    if False:
+                        eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
+                    else:
+                        eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
                     e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=train_disc)
                     mblossvals.append(e_lossvals)
                 train_disc = not train_disc
