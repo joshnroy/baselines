@@ -32,10 +32,10 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 128, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 64, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 32, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.layers.dense(out, num_levels, name='impala_layer_' + get_layer_num_str())
 
     return out
@@ -117,12 +117,14 @@ class Model(object):
             not_current_levels = tf.logical_not(current_levels)
 
             predicted_logits_l = predicted_logits[:, l]
+            print(l, predicted_logits.shape, predicted_logits_l.shape)
             self.real_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits_l, current_levels))
             self.fake_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits_l, not_current_levels))
-            discriminator_loss += -self.real_labels_loss + self.fake_labels_loss
-            pd_loss += self.real_labels_loss - self.fake_labels_loss
+            discriminator_loss += (-self.real_labels_loss + self.fake_labels_loss)
+            pd_loss += (self.real_labels_loss - self.fake_labels_loss)
         discriminator_loss /= self.num_levels
         pd_loss /= self.num_levels
+
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
