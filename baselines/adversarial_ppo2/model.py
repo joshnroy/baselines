@@ -78,6 +78,20 @@ class Model(object):
 
                 predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
+                real_labels = predicted_logits[:nbatch_train, :]
+                self.real_labels_loss = tf.reduce_mean(real_labels)
+                fake_labels = predicted_logits[nbatch_train:, :]
+                self.fake_labels_loss = tf.reduce_mean(fake_labels)
+                discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+
+                gp_alpha = tf.random_uniform(shape=train_model.train_intermediate_feature.shape)
+                differences = train_model.test_intermediate_feature - train_model.train_intermediate_feature
+                interpolates = train_model.train_intermediate_feature + (gp_alpha * train_model.test_intermediate_feature)
+                gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
+                gp_slopes = tf.sqrt(tf.reduce_sum(tf.square(gp_gradients), 1))
+                self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
+                discriminator_loss += 10. * self.gradient_penalty
+
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
         self.ADV = ADV = tf.placeholder(tf.float32, [None])
@@ -92,10 +106,10 @@ class Model(object):
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
 
-        if self.disc_coeff > 0.:
-            self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-            self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
-            discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+
+
+
+
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -135,7 +149,7 @@ class Model(object):
         rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
         if self.disc_coeff > 0.:
-            pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
+            pd_loss = self.real_labels_loss - self.fake_labels_loss
             # pd_loss = -self.fake_labels_loss
 
         loss = rl_loss
@@ -272,7 +286,7 @@ class Model(object):
             out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
         else:
             out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
-            self.sess.run([self.clip_D])
+            # self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out
