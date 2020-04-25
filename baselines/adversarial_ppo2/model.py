@@ -82,15 +82,18 @@ class Model(object):
                 self.real_labels_loss = tf.reduce_mean(real_labels)
                 fake_labels = predicted_logits[nbatch_train:, :]
                 self.fake_labels_loss = tf.reduce_mean(fake_labels)
-                discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
 
                 gp_alpha = tf.random_uniform(shape=train_model.train_intermediate_feature.shape)
-                differences = train_model.test_intermediate_feature - train_model.train_intermediate_feature
-                interpolates = train_model.train_intermediate_feature + (gp_alpha * train_model.test_intermediate_feature)
+                # differences = train_model.test_intermediate_feature - train_model.train_intermediate_feature
+                # interpolates = train_model.train_intermediate_feature + (gp_alpha * train_model.test_intermediate_feature)
+                interpolates = gp_alpha * train_model.train_intermediate_feature + (1. - gp_alpha) * train_model.test_intermediate_feature
                 gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
-                gp_slopes = tf.sqrt(tf.reduce_sum(tf.square(gp_gradients), 1))
-                self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
-                discriminator_loss += 10. * self.gradient_penalty
+
+            gp_slopes = tf.sqrt(tf.reduce_sum(tf.square(gp_gradients), 1))
+            self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
+
+            discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
+            discriminator_loss = discriminator_loss_orig + 10. * self.gradient_penalty
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -175,11 +178,13 @@ class Model(object):
         if self.disc_coeff > 0.:
             stats_dict.update({
                 'discriminator_loss': discriminator_loss,
+                'wdisc_loss': discriminator_loss_orig,
                 'pd_loss': pd_loss,
                 'critic_min': tf.reduce_min(predicted_logits),
                 'critic_max': tf.reduce_max(predicted_logits),
                 'real_labels_loss': self.real_labels_loss,
-                'fake_labels_loss': self.fake_labels_loss
+                'fake_labels_loss': self.fake_labels_loss,
+                'gradient_penalty': self.gradient_penalty
             })
 
         self.loss_names = []
@@ -215,8 +220,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.policy_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            # self.policy_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-            self.policy_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
+            self.policy_trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            # self.policy_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
         # 3. Calculate the gradients
         grads_and_var = self.policy_trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
@@ -242,8 +247,8 @@ class Model(object):
         if comm is not None and comm.Get_size() > 1:
             self.disc_trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            # self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0.5, beta2=0.999)
-            self.disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
+            self.disc_trainer = tf.train.AdamOptimizer(learning_rate=LR, beta1=0., beta2=0.9)
+            # self.disc_trainer = tf.train.RMSPropOptimizer(learning_rate=LR)
             # self.disc_trainer = tf.train.GradientDescentOptimizer(learning_rate=LR)
         # 3. Calculate gradients
         disc_grads_and_var = self.disc_trainer.compute_gradients(discriminator_loss, disc_params)
