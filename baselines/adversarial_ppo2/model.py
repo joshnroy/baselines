@@ -89,7 +89,8 @@ class Model(object):
                 interpolates = gp_alpha * train_model.train_intermediate_feature + (1. - gp_alpha) * train_model.test_intermediate_feature
                 gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
 
-            gp_slopes = tf.sqrt(tf.reduce_sum(tf.square(gp_gradients), 1))
+            gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
+            gp_slopes = tf.debugging.check_numerics(gp_slopes, "Gradient Slope is not a number")
             self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
 
             discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
