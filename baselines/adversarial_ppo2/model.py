@@ -32,7 +32,8 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
+    # out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, num_levels, name='impala_layer_' + get_layer_num_str())
 
     return out
 
@@ -71,30 +72,43 @@ class Model(object):
             else:
                 train_model = policy(microbatch_size, nsteps, sess)
 
+        self.LABELS = tf.placeholder(tf.float32, [None])
+
         if self.disc_coeff > 0.:
             with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
                 # CREATE DISCRIMINTATOR MODEL
-                discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+                # discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+                discriminator_inputs = train_model.train_intermediate_feature
 
                 predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
-                real_labels = predicted_logits[:nbatch_train, :]
-                self.real_labels_loss = tf.reduce_mean(real_labels)
-                fake_labels = predicted_logits[nbatch_train:, :]
-                self.fake_labels_loss = tf.reduce_mean(fake_labels)
+                discriminator_loss = tf.constant(0.)
+                pd_loss = tf.constant(0.)
+                for l in range(num_levels):
+                    curr_levels = tf.equal(self.LABELS, l)
+                    not_curr_levels = tf.not_equal(self.LABELS, l)
 
-                gp_alpha = tf.random_uniform(shape=train_model.train_intermediate_feature.shape)
-                # differences = train_model.test_intermediate_feature - train_model.train_intermediate_feature
-                # interpolates = train_model.train_intermediate_feature + (gp_alpha * train_model.test_intermediate_feature)
-                interpolates = gp_alpha * train_model.train_intermediate_feature + (1. - gp_alpha) * train_model.test_intermediate_feature
-                gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
 
-            gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
-            gp_slopes = tf.debugging.check_numerics(gp_slopes, "Gradient Slope is not a number")
-            self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
+                    real_labels = tf.boolean_mask(predicted_logits[:, l], curr_levels)
+                    self.real_labels_loss = tf.reduce_mean(real_labels)
+                    fake_labels = tf.boolean_mask(predicted_logits[:, l], not_curr_levels)
+                    self.fake_labels_loss = tf.reduce_mean(fake_labels)
 
-            discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
-            discriminator_loss = discriminator_loss_orig + 10. * self.gradient_penalty
+                    gp_alpha = tf.random_uniform(shape=train_model.train_intermediate_feature.shape)
+                    interpolates = gp_alpha * train_model.train_intermediate_feature + (1. - gp_alpha) * train_model.test_intermediate_feature
+                    gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
+
+                    gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
+                    gp_slopes = tf.debugging.check_numerics(gp_slopes, "Gradient Slope is not a number")
+                    self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
+
+                    discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
+                    discriminator_loss += discriminator_loss_orig + 10. * self.gradient_penalty
+
+                    pd_loss += self.real_labels_loss - self.fake_labels_loss
+
+                pd_loss /= self.num_levels
+                discriminator_loss /= self.num_levels
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -150,13 +164,12 @@ class Model(object):
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
 
         # Total loss
-        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
+        rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
 
-        if self.disc_coeff > 0.:
-            pd_loss = self.real_labels_loss - self.fake_labels_loss
+        # if self.disc_coeff > 0.:
             # pd_loss = -self.fake_labels_loss
 
-        loss = rl_loss
+        loss = 5. * rl_loss
         if self.disc_coeff > 0.:
             loss +=  self.TRAIN_GEN * self.disc_coeff * pd_loss
 
@@ -284,15 +297,18 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.TRAIN_GEN : self.training_i % 5 == 0,
+            # self.TRAIN_GEN : self.training_i % 100 == 0,
+            self.TRAIN_GEN : 1.,
+            self.LABELS : labels,
         }
 
         if self.disc_coeff == 0.0:
             td_map[self.TRAIN_GEN] = 0
             out = self.sess.run(self.stats_list + [self.policy_train_op], td_map)[:len(self.stats_list)]
+        elif train_disc:
+            out = self.sess.run(self.stats_list + [self.discriminator_train_op], td_map)[:len(self.stats_list)]
         else:
             out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
-            # self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out
