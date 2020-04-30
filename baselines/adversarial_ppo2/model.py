@@ -84,18 +84,55 @@ class Model(object):
 
                 discriminator_loss = tf.constant(0.)
                 pd_loss = tf.constant(0.)
-                for l in range(num_levels):
+                if True:
+                    for l in range(num_levels):
+                        curr_levels = tf.equal(self.LABELS, l)
+                        not_curr_levels = tf.not_equal(self.LABELS, l)
+
+                        real_labels = tf.boolean_mask(predicted_logits[:, l], curr_levels)
+                        self.real_labels_loss = tf.reduce_mean(real_labels)
+                        fake_labels = tf.boolean_mask(predicted_logits[:, l], not_curr_levels)
+                        self.fake_labels_loss = tf.reduce_mean(fake_labels)
+
+                        real_features = tf.boolean_mask(train_model.train_intermediate_feature, curr_levels)
+                        fake_features = tf.boolean_mask(train_model.train_intermediate_feature, not_curr_levels)
+                        length = tf.minimum(tf.shape(real_features)[0], tf.shape(fake_features)[0])
+                        real_features = real_features[:length]
+                        fake_features = fake_features[:length]
+
+                        gp_alpha = tf.random_uniform(shape=tf.shape(real_features))
+                        interpolates = gp_alpha * real_features + (1. - gp_alpha) * fake_features
+                        gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
+
+                        gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
+                        gp_slopes = tf.debugging.check_numerics(gp_slopes, "Gradient Slope is not a number")
+                        self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
+
+                        discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
+                        discriminator_loss += discriminator_loss_orig + 10. * self.gradient_penalty
+
+                        pd_loss += self.real_labels_loss - self.fake_labels_loss
+
+                    pd_loss /= self.num_levels
+                    discriminator_loss /= self.num_levels
+                else:
+                    l = 0
                     curr_levels = tf.equal(self.LABELS, l)
                     not_curr_levels = tf.not_equal(self.LABELS, l)
-
 
                     real_labels = tf.boolean_mask(predicted_logits[:, l], curr_levels)
                     self.real_labels_loss = tf.reduce_mean(real_labels)
                     fake_labels = tf.boolean_mask(predicted_logits[:, l], not_curr_levels)
                     self.fake_labels_loss = tf.reduce_mean(fake_labels)
 
-                    gp_alpha = tf.random_uniform(shape=train_model.train_intermediate_feature.shape)
-                    interpolates = gp_alpha * train_model.train_intermediate_feature + (1. - gp_alpha) * train_model.test_intermediate_feature
+                    real_features = tf.boolean_mask(train_model.train_intermediate_feature, curr_levels)
+                    fake_features = tf.boolean_mask(train_model.train_intermediate_feature, not_curr_levels)
+                    length = tf.minimum(tf.shape(real_features)[0], tf.shape(fake_features)[0])
+                    real_features = real_features[:length]
+                    fake_features = fake_features[:length]
+
+                    gp_alpha = tf.random_uniform(shape=tf.shape(real_features))
+                    interpolates = gp_alpha * real_features + (1. - gp_alpha) * fake_features
                     gp_gradients = tf.gradients(build_discriminator(interpolates, num_levels), interpolates)[0]
 
                     gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
@@ -106,9 +143,6 @@ class Model(object):
                     discriminator_loss += discriminator_loss_orig + 10. * self.gradient_penalty
 
                     pd_loss += self.real_labels_loss - self.fake_labels_loss
-
-                pd_loss /= self.num_levels
-                discriminator_loss /= self.num_levels
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])
@@ -297,8 +331,8 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            # self.TRAIN_GEN : self.training_i % 100 == 0,
-            self.TRAIN_GEN : 1.,
+            self.TRAIN_GEN : self.training_i % 5 == 0,
+            # self.TRAIN_GEN : 1.,
             self.LABELS : labels,
         }
 
@@ -309,6 +343,7 @@ class Model(object):
             out = self.sess.run(self.stats_list + [self.discriminator_train_op], td_map)[:len(self.stats_list)]
         else:
             out = self.sess.run(self.stats_list + [self.policy_train_op, self.discriminator_train_op], td_map)[:len(self.stats_list)]
+            # self.sess.run([self.clip_D])
         self.training_i += 1
 
         return out

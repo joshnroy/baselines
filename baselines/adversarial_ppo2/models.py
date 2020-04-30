@@ -49,15 +49,16 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         out = tf.nn.leaky_relu(inputs, name='impala_layer_' + get_layer_num_str())
 
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
+        # out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
+        # out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
+        out = conv_layer(inputs, depth)
+        out = tf.layers.max_pooling2d(out, pool_size=3, strides=2, padding='same')
+        # out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         out = residual_block(out)
         out = residual_block(out)
         return out

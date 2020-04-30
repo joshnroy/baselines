@@ -188,25 +188,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
             # Create the indices array
             inds = np.arange(nbatch)
 
-            for _ in range(noptepochs):
-                # Randomize the indexes
-                np.random.shuffle(inds)
-                # 0 to batch_size with batch_train_size step
-                np.random.shuffle(idxs)
-                for start in range(0, nbatch, nbatch_train):
-                    end = start + nbatch_train
-
-                    idxs_batch = idxs[start:end]
-                    limited_eval_obs_batch = limited_eval_obs[idxs_batch]
-                    limited_eval_labels_batch = limited_eval_labels[idxs_batch]
-
-                    mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
-                    # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
-                    eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
-                    e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=False)
-                    mblossvals.append(e_lossvals)
-            for _ in range(5):
+            if False:
                 for _ in range(noptepochs):
                     # Randomize the indexes
                     np.random.shuffle(inds)
@@ -223,7 +205,45 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                         slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
                         # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
                         eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
-                        e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=True)
+                        e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=False)
+                        mblossvals.append(e_lossvals)
+                for _ in range(5):
+                    for _ in range(noptepochs):
+                        # Randomize the indexes
+                        np.random.shuffle(inds)
+                        # 0 to batch_size with batch_train_size step
+                        np.random.shuffle(idxs)
+                        for start in range(0, nbatch, nbatch_train):
+                            end = start + nbatch_train
+
+                            idxs_batch = idxs[start:end]
+                            limited_eval_obs_batch = limited_eval_obs[idxs_batch]
+                            limited_eval_labels_batch = limited_eval_labels[idxs_batch]
+
+                            mbinds = inds[start:end]
+                            slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
+                            # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
+                            eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
+                            e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=True)
+                            mblossvals.append(e_lossvals)
+            else:
+                for _ in range(noptepochs):
+                    # Randomize the indexes
+                    np.random.shuffle(inds)
+                    # 0 to batch_size with batch_train_size step
+                    np.random.shuffle(idxs)
+                    for start in range(0, nbatch, nbatch_train):
+                        end = start + nbatch_train
+
+                        idxs_batch = idxs[start:end]
+                        limited_eval_obs_batch = limited_eval_obs[idxs_batch]
+                        limited_eval_labels_batch = limited_eval_labels[idxs_batch]
+
+                        mbinds = inds[start:end]
+                        slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
+                        # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
+                        eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
+                        e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=False)
                         mblossvals.append(e_lossvals)
 
 
