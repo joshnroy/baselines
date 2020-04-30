@@ -177,6 +177,7 @@ class Model(object):
         self.train_model = train_model
         self.act_model = act_model
         self.step = act_model.step
+        self.step_evaluate = act_model.step_evaluate
         self.value = act_model.value
         self.initial_state = act_model.initial_state
 
