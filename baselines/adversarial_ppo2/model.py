@@ -96,6 +96,12 @@ class Model(object):
             self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
             self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
             discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
+
+            # self.real_mean_loss = tf.reduce_mean(train_model.train_intermediate_feature, 0)
+            # self.fake_mean_loss = tf.reduce_mean(train_model.test_intermediate_feature, 0)
+            # self.real_mean_loss = train_model.train_intermediate_feature
+            # self.fake_mean_loss = train_model.test_intermediate_feature
+            # mmd_loss = tf.reduce_mean((self.real_mean_loss - self.fake_mean_loss)**2.)
         neglogpac = train_model.pd.neglogp(A)
 
         # Calculate the entropy
@@ -135,8 +141,9 @@ class Model(object):
         rl_loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef# - discriminator_loss * disc_coef
 
         if self.disc_coeff > 0.:
-            pd_loss = tf.abs(self.real_labels_loss - self.fake_labels_loss)
+            pd_loss = self.real_labels_loss - self.fake_labels_loss
             # pd_loss = -self.fake_labels_loss
+            # pd_loss = mmd_loss
 
         loss = rl_loss
         if self.disc_coeff > 0.:
