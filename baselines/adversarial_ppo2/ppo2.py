@@ -140,8 +140,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
     tfirststart = time.perf_counter()
 
     eval_limit = 100_000
-    limited_eval_obs = None
-    limited_eval_labels = None
 
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
@@ -167,13 +165,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
             # eval_labels = np.array([num_levels+1 for _ in range(len(eval_obs))])
             eval_labels = np.array([1 for _ in range(len(eval_obs))])
 
-        if limited_eval_obs is None:
-            limited_eval_obs = eval_obs
-            limited_eval_labels = eval_labels
-        elif len(limited_eval_obs) < eval_limit:
-            limited_eval_obs = np.append(limited_eval_obs, eval_obs, axis=0)
-            limited_eval_labels = np.append(limited_eval_labels, eval_labels, axis=0)
-
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
 
         epinfobuf.extend(epinfos)
@@ -181,7 +172,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
             eval_epinfobuf.extend(eval_epinfos)
 
         # Here what we're going to do is for each minibatch calculate the loss and append it.
-        idxs = np.arange(len(limited_eval_obs))
         mblossvals = []
         if states is None: # nonrecurrent version
             # Index of each element of batch_size
@@ -192,18 +182,12 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
-                np.random.shuffle(idxs)
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
 
-                    idxs_batch = idxs[start:end]
-                    limited_eval_obs_batch = limited_eval_obs[idxs_batch]
-                    limited_eval_labels_batch = limited_eval_labels[idxs_batch]
-
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs, labels))
-                    # eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
-                    eval_slices = (arr for arr in (limited_eval_obs_batch, limited_eval_labels_batch))
+                    eval_slices = (arr[mbinds] for arr in (eval_obs, eval_labels))
                     e_lossvals = model.train(lrnow, cliprangenow, *slices, *eval_slices, train_disc=train_disc)
                     mblossvals.append(e_lossvals)
                 train_disc = not train_disc
