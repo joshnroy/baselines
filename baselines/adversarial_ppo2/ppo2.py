@@ -192,7 +192,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
-                np.random.shuffle(idxs)
+                # np.random.shuffle(idxs)
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
 
