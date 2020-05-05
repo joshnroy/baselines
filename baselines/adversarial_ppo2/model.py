@@ -32,8 +32,12 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
     out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
 
     return out
@@ -94,7 +98,7 @@ class Model(object):
             gp_slopes = tf.sqrt(1e-8 + tf.reduce_sum(tf.square(gp_gradients), 1))
             gp_slopes = tf.debugging.check_numerics(gp_slopes, "Gradient Slope is not a number")
             self.gradient_penalty = tf.reduce_mean((gp_slopes - 1.)**2.)
-            self.gradient_penalty = tf.clip_by_value(self.gradient_penalty, -1., 1.)
+            # self.gradient_penalty = tf.clip_by_value(self.gradient_penalty, -1., 1.)
 
 
             discriminator_loss_orig = -self.real_labels_loss + self.fake_labels_loss
@@ -288,7 +292,7 @@ class Model(object):
             self.CLIPRANGE : cliprange,
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
-            self.TRAIN_GEN : self.training_i % 100 == 0,
+            self.TRAIN_GEN : self.training_i % 10 == 0,
         }
 
         if self.disc_coeff == 0.0:
