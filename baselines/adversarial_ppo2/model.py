@@ -30,15 +30,15 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.tanh(inputs)
 
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 1, name='discriminator_layer_' + get_layer_num_str())
 
     return out
 
@@ -80,7 +80,7 @@ class Model(object):
         if self.disc_coeff > 0.:
             with tf.variable_scope('discriminator_model', reuse=tf.AUTO_REUSE):
                 # CREATE DISCRIMINTATOR MODEL
-                discriminator_inputs = tf.concat([train_model.train_intermediate_feature, train_model.test_intermediate_feature], 0)
+                discriminator_inputs = train_model.train_intermediate_feature
 
                 predicted_logits = build_discriminator(discriminator_inputs, num_levels)
 
@@ -97,10 +97,11 @@ class Model(object):
         self.TRAIN_GEN = tf.placeholder(tf.float32, [])
         # Cliprange
         self.CLIPRANGE = CLIPRANGE = tf.placeholder(tf.float32, [])
+        self.LABELS = tf.placeholder(tf.float32, [None])
 
         if self.disc_coeff > 0.:
-            self.real_labels_loss = tf.reduce_mean(predicted_logits[:nbatch_train, 0])
-            self.fake_labels_loss = tf.reduce_mean(predicted_logits[nbatch_train:, 0])
+            self.real_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits[:, 0], tf.equal(self.LABELS, 0)))
+            self.fake_labels_loss = tf.reduce_mean(tf.boolean_mask(predicted_logits[:, 0], tf.not_equal(self.LABELS, 0)))
             discriminator_loss = -self.real_labels_loss + self.fake_labels_loss
 
             # self.real_mean_loss = tf.reduce_mean(train_model.train_intermediate_feature, 0)
@@ -204,7 +205,6 @@ class Model(object):
         self.training_i = 0
 
         self.clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in tf.trainable_variables('discriminator_model')]
-
     def update_policy_params(self, comm, loss, mpi_rank_weight, LR, max_grad_norm):
         # UPDATE THE PARAMETERS USING LOSS
         # 1. Get the model parameters
@@ -278,6 +278,7 @@ class Model(object):
             self.OLDNEGLOGPAC : neglogpacs,
             self.OLDVPRED : values,
             self.TRAIN_GEN : self.training_i % 5 == 0,
+            self.LABELS : labels
         }
 
         if self.disc_coeff == 0.0:
