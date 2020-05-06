@@ -12,6 +12,7 @@ try:
 except ImportError:
     MPI = None
 from baselines.adversarial_ppo2.runner import Runner
+from tqdm import trange
 
 
 def constfn(val):
@@ -317,7 +318,7 @@ def evaluate(*, network, env, total_timesteps, eval_env = None, seed=None, nstep
 
     all_obs = []
     all_latents = []
-    for _ in range(100):
+    for _ in trange(100):
         obs, returns, masks, actions, values, neglogpacs, seeds, latents, states, epinfos = runner.run_evaluate()
         all_obs.append(obs)
         all_latents.append(latents)
