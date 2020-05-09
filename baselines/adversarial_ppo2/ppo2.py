@@ -12,6 +12,7 @@ try:
 except ImportError:
     MPI = None
 from baselines.adversarial_ppo2.runner import Runner
+from tqdm import trange
 
 
 def constfn(val):
@@ -265,3 +266,63 @@ def safemean(xs):
 
 
 
+def evaluate(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
+            vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
+            log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
+            save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=None, num_levels=0, **network_kwargs):
+
+    set_global_seeds(seed)
+
+    # if isinstance(lr, float): lr = constfn(lr)
+    # else: assert callable(lr)
+    # if isinstance(cliprange, float): cliprange = constfn(cliprange)
+    # else: assert callable(cliprange)
+    total_timesteps = int(total_timesteps)
+
+    policy = build_policy(env, network, **network_kwargs)
+
+    # Get the nb of env
+    nenvs = env.num_envs
+
+    # Get state_space and action_space
+    ob_space = env.observation_space
+    ac_space = env.action_space
+
+    # Calculate the batch_size
+    nbatch = nenvs * nsteps
+    nbatch_train = nbatch // nminibatches
+    is_mpi_root = (MPI is None or MPI.COMM_WORLD.Get_rank() == 0)
+
+    # Instantiate the model object (that creates act_model and train_model)
+    if model_fn is None:
+        from baselines.adversarial_ppo2.model import Model
+        model_fn = Model
+
+    model = model_fn(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
+                    nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
+                    max_grad_norm=max_grad_norm, comm=comm, mpi_rank_weight=mpi_rank_weight, disc_coeff=disc_coeff, num_levels=num_levels)
+
+    if load_path is not None:
+        model.load(load_path)
+    # Instantiate the runner object
+    runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, train=True)
+    if eval_env is not None:
+        eval_runner = Runner(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, train=False)
+
+    epinfobuf = deque(maxlen=100)
+    if eval_env is not None:
+        eval_epinfobuf = deque(maxlen=100)
+
+    if init_fn is not None:
+        init_fn()
+
+    all_obs = []
+    all_latents = []
+    for _ in trange(100):
+        obs, returns, masks, actions, values, neglogpacs, seeds, latents, states, epinfos = runner.run_evaluate()
+        all_obs.append(obs)
+        all_latents.append(latents)
+    all_obs = np.concatenate(all_obs, 0)
+    all_latents = np.concatenate(all_latents, 0)
+
+    return all_obs, all_latents, returns
