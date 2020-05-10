@@ -64,14 +64,18 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
-    for i, depth in enumerate(depths):
-        out = conv_sequence(out, depth)
+    # for i, depth in enumerate(depths):
+    #     out = conv_sequence(out, depth)
+    out = conv_sequence(out, depths[0])
+    intermediate_features = tf.layers.flatten(out)
+    out = conv_sequence(out, depths[1])
+    out = conv_sequence(out, depths[2])
 
     # temp = out
     out = tf.layers.flatten(out, name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
-    intermediate_features = tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(intermediate_features, name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
 
     return out, intermediate_features
 
