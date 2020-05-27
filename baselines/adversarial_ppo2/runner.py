@@ -1,6 +1,7 @@
 import numpy as np
 from baselines.common.runners import AbstractEnvRunner
 import matplotlib.pyplot as plt
+import sys
 
 class Runner(AbstractEnvRunner):
     """
@@ -79,7 +80,7 @@ class Runner(AbstractEnvRunner):
             mb_states, epinfos)
 
 
-    def run_evaluate(self):
+    def run_evaluate(self, preprocessor=None):
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
         mb_seeds = []
@@ -87,9 +88,17 @@ class Runner(AbstractEnvRunner):
         mb_states = self.states
         epinfos = []
         # For n in range number of steps
-        for _ in range(self.nsteps):
+        for i_step in range(self.nsteps):
             # Given observations, get action value and neglopacs
             # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
+            if preprocessor is not None:
+                obs_old = self.obs[0]
+                self.obs = preprocessor(self.obs)
+                concatted = np.concatenate((obs_old, self.obs[0]), axis=0)
+                plt.imsave("outputs/translation" + str(i_step) + ".png", concatted)
+            else:
+                obs_old = self.obs[0]
+                plt.imsave("outputs/source" + str(i_step) + ".png", obs_old)
             actions, values, self.states, neglogpacs, latents = self.model.step(self.obs, S=self.states, M=self.dones, train=self.train)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
@@ -106,10 +115,6 @@ class Runner(AbstractEnvRunner):
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
                 seeds.append(info['level_seed'])
-                # if self.file_i % 102 == 0 and not self.train:
-                #     plt.imshow(self.obs[0])
-                #     plt.savefig("file" + str(self.file_i) + ".png")
-                # self.file_i += 1
             mb_rewards.append(rewards)
             mb_seeds.append(seeds)
         #batch of steps to batch of rollouts

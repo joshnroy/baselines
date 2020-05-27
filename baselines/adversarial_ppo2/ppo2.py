@@ -13,6 +13,7 @@ except ImportError:
     MPI = None
 from baselines.adversarial_ppo2.runner import Runner
 from tqdm import trange
+import sys
 
 
 def constfn(val):
@@ -266,10 +267,10 @@ def safemean(xs):
 
 
 
-def evaluate(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
+def evaluate(*, network, env, total_timesteps, num_iterations, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
-            save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=None, num_levels=0, **network_kwargs):
+            save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=None, num_levels=0, preprocessor=None, **network_kwargs):
 
     set_global_seeds(seed)
 
@@ -318,11 +319,17 @@ def evaluate(*, network, env, total_timesteps, eval_env = None, seed=None, nstep
 
     all_obs = []
     all_latents = []
-    for _ in trange(100):
-        obs, returns, masks, actions, values, neglogpacs, seeds, latents, states, epinfos = runner.run_evaluate()
+    all_seeds = []
+    all_returns = []
+    for _ in trange(num_iterations):
+        obs, returns, masks, actions, values, neglogpacs, seeds, latents, states, epinfos = runner.run_evaluate(preprocessor=preprocessor)
         all_obs.append(obs)
         all_latents.append(latents)
+        all_seeds.append(seeds)
+        all_returns.append([epinfo['r'] for epinfo in epinfos])
     all_obs = np.concatenate(all_obs, 0)
     all_latents = np.concatenate(all_latents, 0)
+    all_seeds = np.concatenate(all_seeds, 0)
+    all_returns = np.concatenate(all_returns, 0)
 
-    return all_obs, all_latents, returns
+    return all_obs, all_latents, all_returns, all_seeds
