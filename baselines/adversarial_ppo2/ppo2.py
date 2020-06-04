@@ -15,6 +15,8 @@ from baselines.adversarial_ppo2.runner import Runner
 from tqdm import trange
 import sys
 
+from tqdm import trange
+
 
 def constfn(val):
     def f(_):
@@ -266,12 +268,10 @@ def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
 
 
-
 def evaluate(*, network, env, total_timesteps, num_iterations, eval_env = None, seed=None, nsteps=1024, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
             save_interval=0, load_path=None, model_fn=None, update_fn=None, init_fn=None, mpi_rank_weight=1, comm=None, disc_coeff=None, num_levels=0, preprocessor=None, **network_kwargs):
-
     set_global_seeds(seed)
 
     # if isinstance(lr, float): lr = constfn(lr)

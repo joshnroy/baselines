@@ -49,29 +49,31 @@ def build_impala_cnn(unscaled_images, depths=[16,32,32], **conv_kwargs):
         out = tf.nn.leaky_relu(inputs, name='impala_layer_' + get_layer_num_str())
 
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
         out = conv_layer(out, depth)
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
         return out + inputs
 
     def conv_sequence(inputs, depth):
-        out = conv_layer(inputs, depth, strides=(2, 2))
-        out = tf.layers.batch_normalization(out, name='impala_layer_' + get_layer_num_str())
+        out = conv_layer(inputs, depth)
+        out = tf.layers.max_pooling2d(out, pool_size=3, strides=2, padding='same')
         out = residual_block(out)
         out = residual_block(out)
         return out
 
     out = tf.cast(unscaled_images, tf.float32) / 255.
 
-    for i, depth in enumerate(depths):
-        out = conv_sequence(out, depth)
+    # for i, depth in enumerate(depths):
+    #     out = conv_sequence(out, depth)
+    out = conv_sequence(out, depths[0])
+    intermediate_features = tf.layers.flatten(out)
+    out = conv_sequence(out, depths[1])
+    out = conv_sequence(out, depths[2])
 
     # temp = out
     out = tf.layers.flatten(out, name='impala_layer_' + get_layer_num_str())
     out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
-    intermediate_features = tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(intermediate_features, name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 256, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(out, name='impala_layer_' + get_layer_num_str())
 
     return out, intermediate_features
 
