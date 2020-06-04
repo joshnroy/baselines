@@ -29,15 +29,15 @@ def build_discriminator(inputs, num_levels):
         return num_str
 
     out = tf.nn.tanh(inputs)
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
-    out = tf.layers.dense(out, 1, name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
 
     return out
 

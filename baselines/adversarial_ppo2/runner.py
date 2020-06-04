@@ -94,7 +94,7 @@ class Runner(AbstractEnvRunner):
             if preprocessor is not None:
                 obs_old = self.obs[0]
                 self.obs = preprocessor(self.obs)
-                concatted = np.concatenate((obs_old, self.obs[0]), axis=0)
+                concatted = np.concatenate((obs_old, self.obs[0]), axis=1)
                 plt.imsave("outputs/translation" + str(i_step) + ".png", concatted)
             else:
                 obs_old = self.obs[0]
