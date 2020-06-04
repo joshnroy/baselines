@@ -30,15 +30,15 @@ def build_discriminator(inputs, num_levels):
 
     out = tf.nn.tanh(inputs)
 
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='impala_layer_' + get_layer_num_str()), name='impala_layer_' + get_layer_num_str())
-    out = tf.layers.dense(out, 1, name='impala_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    # out = tf.nn.leaky_relu(tf.layers.dense(out, 512, name='discriminator_layer_' + get_layer_num_str()), name='discriminator_layer_' + get_layer_num_str())
+    out = tf.layers.dense(out, 1, name='discriminator_layer_' + get_layer_num_str())
 
     return out
 
@@ -190,6 +190,7 @@ class Model(object):
         self.train_model = train_model
         self.act_model = act_model
         self.step = act_model.step
+        self.step_evaluate = act_model.step_evaluate
         self.value = act_model.value
         self.initial_state = act_model.initial_state
 
